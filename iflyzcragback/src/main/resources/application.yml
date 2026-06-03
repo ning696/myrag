@@ -1,0 +1,163 @@
+# ==========================================================================
+# myrag 后端配置文件
+# 占位符说明：
+#   ${ENV_NAME}          —— 必须通过环境变量注入（如 JWT_SECRET）
+#   ${ENV_NAME:default}  —— 优先读环境变量，缺省用 default
+#   < 待填写 >           —— 直接在本文件改成你的值（开发期方便）
+# ==========================================================================
+
+spring:
+  application:
+    name: iflyzcragback
+  profiles:
+    active: dev
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+  # ------------------ MySQL（必需）------------------
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:myrag}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:<在此填写MySQL密码>}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 60000
+
+  # ------------------ Redis（可选：缓存 / JWT 黑名单 / 登录失败计数）------------------
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 3000ms
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+# ------------------ MyBatis-Plus ------------------
+mybatis-plus:
+  mapper-locations: classpath:/mapper/**/*.xml
+  type-aliases-package: com.zc.iflyzcragback.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ------------------ Milvus 向量库（必需）------------------
+milvus:
+  host: ${MILVUS_HOST}
+  port: ${MILVUS_PORT}
+  username: ${MILVUS_USERNAME:}
+  password: ${MILVUS_PASSWORD:}
+  collection-name: myrag_chunks
+  dimension: 1536       # DashScope text-embedding-v2 输出维度
+
+# ------------------ LangChain4j：LLM Provider（必需，至少配一个）------------------
+# DeepSeek 走 OpenAI 兼容协议；切换为 OpenAI 仅需改 base-url 和 model-name。
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
+      api-key: ${DEEPSEEK_API_KEY}
+      model-name: ${LLM_MODEL}
+      timeout: 10s
+      max-retries: 3
+      log-requests: false
+      log-responses: false
+  # Embedding 使用阿里云 DashScope text-embedding-v2（云端，1536 维）。
+  # 切换模型只需改 model-name（v1=1536 / v2=1536 / v3=1024，注意同步修改 milvus.dimension）。
+  community:
+    dashscope:
+      embedding-model:
+        api-key: ${DASHSCOPE_API_KEY}
+        model-name: ${EMBEDDING_MODEL:text-embedding-v2}
+
+# ------------------ JWT（必需）------------------
+jwt:
+  secret: ${JWT_SECRET:<至少256位随机字符串_请用openssl_rand_-base64_64生成>}
+  expiration: 7200000               # 2 小时（毫秒）
+  remember-me-expiration: 604800000 # 7 天（毫秒）
+  header: Authorization
+  prefix: Bearer
+
+# ------------------ 文件上传（主存储走 MinIO，见下方 minio 配置）------------------
+file:
+  allowed-types: pdf,txt,md,markdown
+  max-size: 52428800   # 50MB
+
+# ------------------ RAG 检索参数 ------------------
+rag:
+  retrieval:
+    top-k: 3
+    min-score: 0.6
+  chunk:
+    size: 800
+    overlap: 80
+
+# ------------------ CORS ------------------
+cors:
+  allowed-origins: http://localhost:5173
+  allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+  allow-credentials: true
+  max-age: 3600
+
+# ==========================================================================
+# 可选中间件 —— 仅在启用对应功能时配置
+# ==========================================================================
+
+# MinIO 对象存储（文档主存储，必需）
+# endpoint 形如 http://localhost:9000；secure=true 时使用 https。
+# 启动时若 bucket 不存在会自动创建。
+minio:
+  enabled: true
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
+  bucket-name: ${MINIO_BUCKET}
+  secure: false
+
+# SMTP 邮件服务（EmailSkill 使用）
+mail:
+  host: ${SMTP_HOST:}
+  port: ${SMTP_PORT:465}
+  username: ${SMTP_USERNAME:}
+  password: ${SMTP_PASSWORD:}
+  from: ${SMTP_FROM:}
+  ssl-enable: true
+
+# 网络搜索 API（WebSearchPlugin 使用）
+search:
+  provider: bing                # bing / serpapi / google
+  api-key: ${SEARCH_API_KEY:}
+  endpoint: ${SEARCH_ENDPOINT:https://api.bing.microsoft.com/v7.0/search}
+  timeout: 5000
+
+# 天气 API（WeatherSkill 使用，默认和风天气）
+weather:
+  provider: qweather
+  api-key: ${WEATHER_API_KEY:}
+  endpoint: https://devapi.qweather.com/v7
+  timeout: 5000
+
+# 备选 LLM Provider 配置（保留作切换参考；当前未启用）
+deepseek:
+  api-key: ${DEEPSEEK_API_KEY:}
+
+# ------------------ 日志 ------------------
+logging:
+  level:
+    root: info
+    com.zc.iflyzcragback: debug
+    dev.langchain4j: info
+    org.springframework.security: info
