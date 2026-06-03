@@ -1,11 +1,15 @@
 package com.zc.iflyzcragback.service.rag;
 
 import com.zc.iflyzcragback.entity.ChatMessageEntity;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -23,33 +27,42 @@ public class PromptBuilder {
             5. 答案使用中文，结构清晰，必要时分点列出。
             """;
 
-    public String build(String query, List<EmbeddingMatch<TextSegment>> contexts, List<ChatMessageEntity> history) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(RAG_SYSTEM_PROMPT).append("\n\n");
+    public List<ChatMessage> buildMessages(String query,
+                                           List<RetrievedChunk> chunks,
+                                           List<ChatMessageEntity> history) {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from(buildSystemContent(chunks)));
 
-        sb.append("【参考资料】\n");
-        for (int i = 0; i < contexts.size(); i++) {
-            TextSegment seg = contexts.get(i).embedded();
+        if (history != null) {
+            for (ChatMessageEntity msg : history) {
+                String role = msg.getRole();
+                String content = msg.getContent();
+                if (content == null || content.isBlank()) continue;
+                if ("user".equalsIgnoreCase(role)) {
+                    messages.add(UserMessage.from(content));
+                } else if ("assistant".equalsIgnoreCase(role)) {
+                    messages.add(AiMessage.from(content));
+                }
+            }
+        }
+
+        messages.add(UserMessage.from(query));
+        return messages;
+    }
+
+    private String buildSystemContent(List<RetrievedChunk> chunks) {
+        StringBuilder sb = new StringBuilder(RAG_SYSTEM_PROMPT).append("\n【参考资料】\n");
+        for (int i = 0; i < chunks.size(); i++) {
+            TextSegment seg = chunks.get(i).segment();
             String docName = seg.metadata().getString("documentName");
             String title = seg.metadata().getString("title");
-            sb.append("[来源 ").append(i + 1).append("] (文档：").append(docName);
+            sb.append("[来源 ").append(i + 1).append("] (文档：")
+                    .append(docName == null ? "" : docName);
             if (title != null && !title.isBlank()) {
                 sb.append(" \"").append(title).append("\"");
             }
             sb.append(")\n").append(seg.text()).append("\n\n");
         }
-
-        if (history != null && !history.isEmpty()) {
-            sb.append("【对话历史】\n");
-            for (ChatMessageEntity msg : history) {
-                sb.append(msg.getRole()).append(": ").append(msg.getContent()).append("\n");
-            }
-            sb.append("\n");
-        }
-
-        sb.append("【用户问题】\n").append(query).append("\n\n");
-        sb.append("【你的回答】\n");
-
         return sb.toString();
     }
 }

@@ -1,6 +1,7 @@
 package com.zc.iflyzcragback.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.zc.iflyzcragback.dto.BM25Hit;
 import com.zc.iflyzcragback.entity.DocumentChunkEntity;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -13,20 +14,22 @@ public interface DocumentChunkMapper extends BaseMapper<DocumentChunkEntity> {
 
     /**
      * BM25 全文检索（MySQL FULLTEXT + ngram parser）。仅返回属于 userId 且未删除的 chunk。
-     * P1 阶段启用；P0 不调用。
+     * JOIN documents 表带回 documentName，用于混合检索后的 prompt [来源] 渲染与 citations 回显。
      */
     @Select("""
-            SELECT id, document_id AS documentId, user_id AS userId, chunk_index AS chunkIndex,
-                   content, title, keywords, summary, vector_id AS vectorId,
-                   created_at AS createdAt, deleted,
-                   MATCH(content) AGAINST(#{q} IN NATURAL LANGUAGE MODE) AS score
-            FROM document_chunks
-            WHERE user_id = #{userId} AND deleted = 0
-              AND MATCH(content) AGAINST(#{q} IN NATURAL LANGUAGE MODE)
-            ORDER BY score DESC
+            SELECT c.id, c.document_id AS documentId, c.user_id AS userId,
+                   c.chunk_index AS chunkIndex, c.content, c.title, c.keywords,
+                   c.summary, c.vector_id AS vectorId, c.created_at AS createdAt, c.deleted,
+                   d.filename AS documentName,
+                   MATCH(c.content) AGAINST(#{q} IN NATURAL LANGUAGE MODE) AS bm25Score
+            FROM document_chunks c
+            LEFT JOIN documents d ON d.id = c.document_id
+            WHERE c.user_id = #{userId} AND c.deleted = 0
+              AND MATCH(c.content) AGAINST(#{q} IN NATURAL LANGUAGE MODE)
+            ORDER BY bm25Score DESC
             LIMIT #{limit}
             """)
-    List<DocumentChunkEntity> bm25Search(@Param("q") String q,
-                                         @Param("userId") Long userId,
-                                         @Param("limit") int limit);
+    List<BM25Hit> bm25Search(@Param("q") String q,
+                             @Param("userId") Long userId,
+                             @Param("limit") int limit);
 }

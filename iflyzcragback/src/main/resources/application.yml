@@ -111,6 +111,7 @@ rag:
     top-k: 10                # 粗排候选数（混合检索后送 reranker）
     rerank-top-k: 3          # 精排后实际送 LLM 的 chunk 数
     min-score: 0.6
+    rrf-k: 60                # RRF 融合参数 k（经验值，向量+BM25 融合时的位次衰减常数）
   chunk:
     size: 800
     overlap: 80
@@ -123,7 +124,7 @@ rag:
   history:
     max-turns: 4             # 对话历史保留最近 N 轮
   query-rewrite:
-    enabled: false           # P0 关闭，P1 打开
+    enabled: true            # 启用查询改写（短 query 自动跳过）
     min-query-length: 15
   rerank:
     enabled: false           # P0 关闭，P1 打开

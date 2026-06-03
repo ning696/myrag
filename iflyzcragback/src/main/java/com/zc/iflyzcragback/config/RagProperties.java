@@ -23,6 +23,7 @@ public class RagProperties {
         private int topK = 10;
         private int rerankTopK = 3;
         private double minScore = 0.6;
+        private int rrfK = 60;
     }
 
     @Data
