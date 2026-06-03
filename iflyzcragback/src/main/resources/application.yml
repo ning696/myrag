@@ -7,6 +7,8 @@
 # ==========================================================================
 
 spring:
+  config:
+    import: optional:file:./.env[.properties]
   application:
     name: iflyzcragback
   profiles:
@@ -20,7 +22,7 @@ spring:
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:myrag}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:<在此填写MySQL密码>}
+    password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 10
@@ -30,8 +32,8 @@ spring:
   # ------------------ Redis（可选：缓存 / JWT 黑名单 / 登录失败计数）------------------
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      host: ${REDIS_HOST:}
+      port: ${REDIS_PORT:}
       password: ${REDIS_PASSWORD:}
       database: 0
       timeout: 3000ms
@@ -75,17 +77,24 @@ langchain4j:
       max-retries: 3
       log-requests: false
       log-responses: false
+    streaming-chat-model:
+      base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
+      api-key: ${DEEPSEEK_API_KEY}
+      model-name: ${LLM_MODEL}
+      timeout: 60s
+      log-requests: false
+      log-responses: false
   # Embedding 使用阿里云 DashScope text-embedding-v2（云端，1536 维）。
   # 切换模型只需改 model-name（v1=1536 / v2=1536 / v3=1024，注意同步修改 milvus.dimension）。
   community:
     dashscope:
       embedding-model:
-        api-key: ${DASHSCOPE_API_KEY}
+        api-key: ${DASHSCOPE_API_KEY:}
         model-name: ${EMBEDDING_MODEL:text-embedding-v2}
 
 # ------------------ JWT（必需）------------------
 jwt:
-  secret: ${JWT_SECRET:<至少256位随机字符串_请用openssl_rand_-base64_64生成>}
+  secret: ${JWT_SECRET:}
   expiration: 7200000               # 2 小时（毫秒）
   remember-me-expiration: 604800000 # 7 天（毫秒）
   header: Authorization
@@ -99,11 +108,32 @@ file:
 # ------------------ RAG 检索参数 ------------------
 rag:
   retrieval:
-    top-k: 3
+    top-k: 10                # 粗排候选数（混合检索后送 reranker）
+    rerank-top-k: 3          # 精排后实际送 LLM 的 chunk 数
     min-score: 0.6
   chunk:
     size: 800
     overlap: 80
+    default-strategy: RECURSIVE   # RECURSIVE / BY_HEADING
+  preview:
+    ttl-seconds: 1800        # Redis 预览态 TTL（30 分钟）
+  ingest:
+    progress-ttl-seconds: 3600  # 入库进度 key TTL（1 小时）
+    embed-batch-size: 16     # 每批送 embedding 的 chunk 数
+  history:
+    max-turns: 4             # 对话历史保留最近 N 轮
+  query-rewrite:
+    enabled: false           # P0 关闭，P1 打开
+    min-query-length: 15
+  rerank:
+    enabled: false           # P0 关闭，P1 打开
+    provider: jina           # jina / noop
+    api-key: ${JINA_API_KEY:}
+    model-name: jina-reranker-v2-base-multilingual
+    endpoint: https://api.jina.ai/v1/rerank
+    timeout: 5000
+  embedding:
+    version: dashscope-v2-1536   # 索引时记录的 embedding 版本（切模型用）
 
 # ------------------ CORS ------------------
 cors:

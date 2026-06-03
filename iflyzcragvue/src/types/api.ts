@@ -1,0 +1,84 @@
+export interface User {
+  id: number
+  username: string
+  email: string
+  nickname?: string
+  avatar?: string
+  role: string
+}
+
+export interface LoginRequest {
+  username: string
+  password: string
+  rememberMe?: boolean
+}
+
+export interface LoginResponse {
+  token: string
+  user: User
+}
+
+export interface Document {
+  id: number
+  filename: string
+  fileType: string
+  fileSize: number
+  uploadTime: string
+  chunkCount: number
+  status: string
+}
+
+export interface ChunkPreview {
+  chunkIndex: number
+  content: string
+  title?: string
+  keywords?: string[]
+}
+
+export interface ChunkParams {
+  size: number
+  overlap: number
+  strategy: string
+}
+
+export interface UploadResponse {
+  documentId: number
+  params: ChunkParams
+  chunks: ChunkPreview[]
+}
+
+export interface IngestProgress {
+  status: string
+  processed: number
+  total: number
+}
+
+export interface ChatSession {
+  sessionId: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ChatMessage {
+  id: number
+  role: string
+  content: string
+  citations?: Citation[]
+  confidence?: number
+  createdAt: string
+}
+
+export interface Citation {
+  n: number
+  documentId: number
+  documentName: string
+  chunkIndex: number
+  content: string
+  score: number
+}
+
+export interface ChatRequest {
+  sessionId: string
+  query: string
+}
