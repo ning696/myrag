@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `password`   VARCHAR(100) NOT NULL                                      COMMENT '密码（BCrypt 加密）',
     `nickname`   VARCHAR(50)           DEFAULT NULL                         COMMENT '昵称',
     `avatar`     VARCHAR(255)          DEFAULT NULL                         COMMENT '头像URL',
+    `current_location` VARCHAR(255)    DEFAULT NULL                         COMMENT '当前所在位置（天气插件默认位置，如城市/区县/经纬度）',
     `role`       VARCHAR(20)  NOT NULL DEFAULT 'USER'                       COMMENT '角色：USER / ADMIN',
     `status`     VARCHAR(20)  NOT NULL DEFAULT 'active'                     COMMENT '状态：active / locked / disabled',
     `created_at` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP            COMMENT '注册时间',
@@ -49,6 +50,23 @@ CREATE TABLE IF NOT EXISTS `users` (
     KEY `idx_role`    (`role`),
     KEY `idx_deleted` (`deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
+
+-- 老库兼容：users 已存在时，重复执行 init.sql 也能补齐 current_location 字段。
+SET @users_current_location_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'users'
+      AND COLUMN_NAME = 'current_location'
+);
+SET @users_current_location_ddl := IF(
+    @users_current_location_exists = 0,
+    'ALTER TABLE `users` ADD COLUMN `current_location` VARCHAR(255) DEFAULT NULL COMMENT ''当前所在位置（天气插件默认位置，如城市/区县/经纬度）'' AFTER `avatar`',
+    'SELECT 1'
+);
+PREPARE users_current_location_stmt FROM @users_current_location_ddl;
+EXECUTE users_current_location_stmt;
+DEALLOCATE PREPARE users_current_location_stmt;
 
 -- ---------------------------------------------------------------------
 -- 2. documents 文档元信息表

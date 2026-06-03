@@ -31,5 +31,5 @@ export const useUserStore = defineStore('user', () => {
     key: 'user-store',
     storage: localStorage,
     paths: ['token', 'user']
-  }
+  } as any
 })
