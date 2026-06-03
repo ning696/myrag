@@ -40,6 +40,13 @@ export const useChatStore = defineStore('chat', () => {
     activeMessages.value.push(message)
   }
 
+  const updateMessage = (id: number, patch: Partial<ChatMessage>) => {
+    const message = activeMessages.value.find((m) => m.id === id)
+    if (message) {
+      Object.assign(message, patch)
+    }
+  }
+
   return {
     sessions,
     activeSessionId,
@@ -48,6 +55,7 @@ export const useChatStore = defineStore('chat', () => {
     createSession,
     deleteSession,
     loadMessages,
-    addMessage
+    addMessage,
+    updateMessage
   }
 })

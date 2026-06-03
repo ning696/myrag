@@ -9,6 +9,7 @@ import com.zc.iflyzcragback.service.ChatService;
 import com.zc.iflyzcragback.service.SessionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -53,7 +54,7 @@ public class ChatController {
         return Result.success(sessionService.getMessages(sessionId, SecurityUtils.getCurrentUserId()));
     }
 
-    @PostMapping("/messages/stream")
+    @PostMapping(value = "/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@Valid @RequestBody ChatRequest req) {
         return chatService.stream(req.getSessionId(), req.getQuery(), SecurityUtils.getCurrentUserId());
     }

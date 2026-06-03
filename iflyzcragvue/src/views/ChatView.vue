@@ -38,8 +38,15 @@ const handleSend = async () => {
     onmessage(ev) {
       if (ev.event === 'token') {
         aiContent += ev.data
-        aiMsg.content = aiContent
+        chatStore.updateMessage(aiMsg.id, { content: aiContent })
+        nextTick(() => scrollToBottom())
+      } else if (ev.event === 'citations') {
+        chatStore.updateMessage(aiMsg.id, { citations: JSON.parse(ev.data) })
       } else if (ev.event === 'done') {
+        if (ev.data && ev.data !== '{}') {
+          const data = JSON.parse(ev.data)
+          chatStore.updateMessage(aiMsg.id, { confidence: data.confidence })
+        }
         sending.value = false
       }
     },
