@@ -98,6 +98,7 @@ const confidenceClass = (confidence?: number) => {
 const answerMetaText = (msg: { answerMode?: string; confidence?: number }) => {
   if (msg.answerMode === 'CHAT') return '普通对话'
   if (msg.answerMode === 'NO_KB_HIT') return '未命中知识库'
+  if (msg.answerMode === 'WEB_SEARCH') return '联网搜索'
   if (msg.answerMode === 'REALTIME_UNAVAILABLE') return '需要实时数据'
   return confidenceText(msg.confidence)
 }
@@ -105,8 +106,24 @@ const answerMetaText = (msg: { answerMode?: string; confidence?: number }) => {
 const answerMetaClass = (msg: { answerMode?: string; confidence?: number }) => {
   if (msg.answerMode === 'CHAT') return 'chat'
   if (msg.answerMode === 'NO_KB_HIT') return 'no-hit'
+  if (msg.answerMode === 'WEB_SEARCH') return 'web-search'
   if (msg.answerMode === 'REALTIME_UNAVAILABLE') return 'realtime'
   return confidenceClass(msg.confidence)
+}
+
+const sourceTitle = (citation: { sourceType?: string; title?: string; documentName?: string; n: number }) => {
+  if (citation.sourceType === 'web') return `网页 ${citation.n} · ${citation.title || citation.documentName || '未命名网页'}`
+  return `来源 ${citation.n} · ${citation.documentName || '未命名文档'}`
+}
+
+const sourceMeta = (citation: { sourceType?: string; chunkIndex?: number; score?: number; publishedDate?: string }) => {
+  const score = citation.score === undefined || citation.score === null
+    ? ''
+    : `相关度 ${Math.round(citation.score * 100)}%`
+  if (citation.sourceType === 'web') {
+    return [citation.publishedDate ? `发布时间 ${citation.publishedDate}` : '', score].filter(Boolean).join(' · ')
+  }
+  return [`Chunk ${citation.chunkIndex ?? '-'}`, score.replace('相关度', '相似度')].filter(Boolean).join(' · ')
 }
 
 const formatTime = (value: string) => {
@@ -199,8 +216,18 @@ onMounted(async () => {
             <div v-if="msg.citations?.length" class="citations">
               <div v-for="citation in msg.citations" :key="`${msg.id}-${citation.n}`" class="citation-item">
                 <div>
-                  <strong>来源 {{ citation.n }} · {{ citation.documentName }}</strong>
-                  <span>Chunk {{ citation.chunkIndex }} · 相似度 {{ Math.round(citation.score * 100) }}%</span>
+                  <strong>
+                    <a
+                      v-if="citation.sourceType === 'web' && citation.url"
+                      :href="citation.url"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {{ sourceTitle(citation) }}
+                    </a>
+                    <template v-else>{{ sourceTitle(citation) }}</template>
+                  </strong>
+                  <span>{{ sourceMeta(citation) }}</span>
                 </div>
                 <p>{{ citation.content }}</p>
               </div>
@@ -498,6 +525,7 @@ onMounted(async () => {
 }
 
 .confidence.no-hit,
+.confidence.web-search,
 .confidence.realtime {
   background: var(--warning-soft);
   color: var(--warning);
@@ -525,6 +553,15 @@ onMounted(async () => {
 .citation-item strong {
   color: var(--text-primary);
   font-size: 13px;
+}
+
+.citation-item a {
+  color: var(--brand);
+  text-decoration: none;
+}
+
+.citation-item a:hover {
+  text-decoration: underline;
 }
 
 .citation-item span,

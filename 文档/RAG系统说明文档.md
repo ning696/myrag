@@ -90,7 +90,7 @@ Token 前后端交互流程
 2. 插件机制（简单但清晰）
 插件 = 独立的功能模块，可在检索前/后挂载执行。
 例子：
-- WebSearchPlugin ：当知识库无结果时自动调用搜索 API
+- WebSearchPlugin ：搜索 API
 - TimePlugin ：识别时间相关问题并给出当前时间
 - CalculatorPlugin ：计算表达式
 设计要求：

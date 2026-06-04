@@ -12,6 +12,8 @@ public enum AnswerMode {
     RAG_ANSWER,
     /** 知识库没有命中可靠依据。 */
     NO_KB_HIT,
+    /** 联网搜索命中公开网页信息，并基于网页来源回答。 */
+    WEB_SEARCH,
     /** 用户需要实时外部数据，但当前系统未接入实时查询能力。 */
     REALTIME_UNAVAILABLE
 }

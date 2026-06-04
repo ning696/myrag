@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS `chat_messages` (
     `tokens_used`      INT          NOT NULL DEFAULT 0                      COMMENT '消耗 token 数',
     `response_time`    INT          NOT NULL DEFAULT 0                      COMMENT '响应时间（毫秒）',
     `confidence`       DOUBLE                DEFAULT NULL                   COMMENT '检索 topScore，对应 ChatResponse.confidence；前端低置信提示用',
-    `answer_mode`      VARCHAR(40)           DEFAULT NULL                   COMMENT '回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / REALTIME_UNAVAILABLE',
+    `answer_mode`      VARCHAR(40)           DEFAULT NULL                   COMMENT '回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / WEB_SEARCH / REALTIME_UNAVAILABLE',
     `created_at`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP      COMMENT '创建时间',
     `deleted`          TINYINT      NOT NULL DEFAULT 0                      COMMENT '逻辑删除：0=未删, 1=已删',
     PRIMARY KEY (`id`),
@@ -185,7 +185,7 @@ SET @chat_messages_answer_mode_exists := (
 );
 SET @chat_messages_answer_mode_ddl := IF(
     @chat_messages_answer_mode_exists = 0,
-    'ALTER TABLE `chat_messages` ADD COLUMN `answer_mode` VARCHAR(40) DEFAULT NULL COMMENT ''回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / REALTIME_UNAVAILABLE'' AFTER `confidence`',
+    'ALTER TABLE `chat_messages` ADD COLUMN `answer_mode` VARCHAR(40) DEFAULT NULL COMMENT ''回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / WEB_SEARCH / REALTIME_UNAVAILABLE'' AFTER `confidence`',
     'SELECT 1'
 );
 PREPARE chat_messages_answer_mode_stmt FROM @chat_messages_answer_mode_ddl;
@@ -281,3 +281,13 @@ SELECT 'admin',
        'ADMIN',
        'active'
 WHERE NOT EXISTS (SELECT 1 FROM `users` WHERE `username` = 'admin');
+
+-- 默认搜索插件配置。Tavily API Key 不写入数据库，必须通过 TAVILY_API_KEY 环境变量提供。
+INSERT INTO `plugins_config` (`plugin_name`, `enabled`, `config_json`, `description`, `hook_type`, `priority`)
+SELECT 'WebSearchPlugin',
+       1,
+       '{"maxResults":5,"searchDepth":"basic","minScore":0.5,"timeRange":"week","timeoutMs":5000}',
+       '使用 Tavily Search API 查询实时网页信息',
+       'before',
+       100
+WHERE NOT EXISTS (SELECT 1 FROM `plugins_config` WHERE `plugin_name` = 'WebSearchPlugin');

@@ -6,6 +6,10 @@ import com.zc.iflyzcragback.config.RagProperties;
 import com.zc.iflyzcragback.dto.CitationVO;
 import com.zc.iflyzcragback.entity.ChatMessageEntity;
 import com.zc.iflyzcragback.mapper.ChatMessageMapper;
+import com.zc.iflyzcragback.plugin.PluginManager;
+import com.zc.iflyzcragback.plugin.PluginResult;
+import com.zc.iflyzcragback.plugin.WebSearchPlugin;
+import com.zc.iflyzcragback.plugin.WebSearchSource;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
@@ -41,6 +45,7 @@ public class RagOrchestrator {
     private final QueryRewriter queryRewriter;
     private final HybridRetriever hybridRetriever;
     private final PromptBuilder promptBuilder;
+    private final PluginManager pluginManager;
     private final StreamingChatLanguageModel chatModel;
     private final ChatMessageMapper messageMapper;
     private final RagProperties props;
@@ -62,11 +67,28 @@ public class RagOrchestrator {
                 // 2. 先判断问题类型，决定走普通聊天、知识库问答，还是提示实时能力不可用。
                 QueryRouter.RouteDecision decision = queryRouter.route(query, history);
 
-                if (decision.route() == QueryRoute.REALTIME_UNAVAILABLE) {
-                    // 当前系统未接入实时搜索，所以不能编造实时行情/天气/新闻等答案。
+                if (decision.route() == QueryRoute.WEB_SEARCH) {
+                    PluginResult pluginResult = pluginManager.executeBefore(
+                            query, sessionId, userId, decision.route(), startTime);
+                    List<WebSearchSource> webSources = extractWebSources(pluginResult);
+                    if (!webSources.isEmpty()) {
+                        List<ChatMessage> messages = promptBuilder.buildWebSearchMessages(query, webSources, history);
+                        streamAndSave(emitter, sessionId, query, messages, AnswerMode.WEB_SEARCH,
+                                topWebScore(webSources), decision.reason(), buildWebCitations(webSources),
+                                pluginResult.getPluginName(), startTime);
+                        return;
+                    }
+
                     List<ChatMessage> messages = promptBuilder.buildRealtimeUnavailableMessages(query, history);
                     streamAndSave(emitter, sessionId, query, messages, AnswerMode.REALTIME_UNAVAILABLE,
-                            null, decision.reason(), null, startTime);
+                            null, decision.reason(), null, null, startTime);
+                    return;
+                }
+
+                if (decision.route() == QueryRoute.REALTIME_UNAVAILABLE) {
+                    List<ChatMessage> messages = promptBuilder.buildRealtimeUnavailableMessages(query, history);
+                    streamAndSave(emitter, sessionId, query, messages, AnswerMode.REALTIME_UNAVAILABLE,
+                            null, decision.reason(), null, null, startTime);
                     return;
                 }
 
@@ -88,7 +110,7 @@ public class RagOrchestrator {
                     // 普通聊天不带知识库资料，避免模型假装引用资料。
                     List<ChatMessage> messages = promptBuilder.buildChatMessages(query, history);
                     streamAndSave(emitter, sessionId, query, messages, AnswerMode.CHAT,
-                            null, decision.reason(), null, startTime);
+                            null, decision.reason(), null, null, startTime);
                     return;
                 }
 
@@ -96,14 +118,14 @@ public class RagOrchestrator {
                     // 知识库没命中可靠依据时，明确告诉模型“不能编造”。
                     List<ChatMessage> messages = promptBuilder.buildNoKbHitMessages(query, history);
                     streamAndSave(emitter, sessionId, query, messages, AnswerMode.NO_KB_HIT,
-                            null, decision.reason(), null, startTime);
+                            null, decision.reason(), null, null, startTime);
                     return;
                 }
 
                 // RAG 命中资料：把 chunk 拼入 Prompt，并要求回答引用来源。
                 List<ChatMessage> messages = promptBuilder.buildMessages(query, chunks, history);
                 streamAndSave(emitter, sessionId, query, messages, AnswerMode.RAG_ANSWER,
-                        confidence, decision.reason(), chunks, startTime);
+                        confidence, decision.reason(), buildCitations(chunks), null, startTime);
             } catch (Exception e) {
                 log.error("RAG 对话失败", e);
                 try {
@@ -145,6 +167,9 @@ public class RagOrchestrator {
         if (decision.route() == QueryRoute.REALTIME_UNAVAILABLE) {
             return AnswerMode.REALTIME_UNAVAILABLE;
         }
+        if (decision.route() == QueryRoute.WEB_SEARCH) {
+            return AnswerMode.WEB_SEARCH;
+        }
 
         List<RetrievedChunk> chunks = retrieved == null ? List.of() : retrieved.chunks();
         double topVectorScore = retrieved == null ? 0.0 : retrieved.topVectorScore();
@@ -169,7 +194,8 @@ public class RagOrchestrator {
                                AnswerMode answerMode,
                                Double confidence,
                                String routeReason,
-                               List<RetrievedChunk> chunks,
+                               List<CitationVO> citations,
+                               String pluginUsed,
                                long startTime) {
         StringBuilder answerBuilder = new StringBuilder();
         AtomicBoolean emitterActive = new AtomicBoolean(true);
@@ -197,20 +223,20 @@ public class RagOrchestrator {
             @Override
             public void onCompleteResponse(ChatResponse response) {
                 try {
-                    // RAG 回答完成后，把引用信息单独发给前端，方便展示来源卡片。
-                    if (emitterActive.get() && chunks != null && !chunks.isEmpty()) {
+                    // 回答完成后，把引用信息单独发给前端，方便展示来源卡片。
+                    if (emitterActive.get() && citations != null && !citations.isEmpty()) {
                         emitter.send(SseEmitter.event().name("citations").data(
-                                objectMapper.writeValueAsString(buildCitations(chunks))));
+                                objectMapper.writeValueAsString(citations)));
                     }
                     if (emitterActive.get()) {
                         emitter.send(SseEmitter.event().name("done").data(donePayload(answerMode, confidence, routeReason)));
                         emitter.complete();
                     }
-                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence, answerMode);
+                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence, answerMode, pluginUsed);
                 } catch (IOException | IllegalStateException e) {
                     emitterActive.set(false);
                     log.warn("SSE client disconnected before completion, sessionId={}", sessionId);
-                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence, answerMode);
+                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence, answerMode, pluginUsed);
                 }
             }
 
@@ -263,11 +289,51 @@ public class RagOrchestrator {
         return citations;
     }
 
+    @SuppressWarnings("unchecked")
+    private List<WebSearchSource> extractWebSources(PluginResult result) {
+        if (result == null || result.getMetadata() == null) {
+            return List.of();
+        }
+        Object value = result.getMetadata().get(WebSearchPlugin.sourcesKey());
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .filter(WebSearchSource.class::isInstance)
+                    .map(WebSearchSource.class::cast)
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private Double topWebScore(List<WebSearchSource> sources) {
+        return sources.stream()
+                .map(WebSearchSource::getScore)
+                .filter(score -> score != null)
+                .max(Double::compareTo)
+                .orElse(null);
+    }
+
+    private List<CitationVO> buildWebCitations(List<WebSearchSource> sources) {
+        List<CitationVO> citations = new ArrayList<>();
+        for (WebSearchSource source : sources) {
+            CitationVO citation = new CitationVO();
+            citation.setN(source.getIndex());
+            citation.setSourceType("web");
+            citation.setTitle(source.getTitle());
+            citation.setDocumentName(source.getTitle());
+            citation.setUrl(source.getUrl());
+            citation.setContent(source.getContent());
+            citation.setScore(source.getScore());
+            citation.setPublishedDate(source.getPublishedDate());
+            citations.add(citation);
+        }
+        return citations;
+    }
+
     /**
      * 保存用户问题和助手回答，供会话历史和后续上下文使用。
      */
     private void saveMessage(String sessionId, String query, String answer,
-                             long startTime, Double confidence, AnswerMode answerMode) {
+                             long startTime, Double confidence, AnswerMode answerMode, String pluginUsed) {
         long elapsed = System.currentTimeMillis() - startTime;
 
         ChatMessageEntity userMsg = new ChatMessageEntity();
@@ -282,6 +348,7 @@ public class RagOrchestrator {
         aiMsg.setContent(answer);
         aiMsg.setConfidence(confidence);
         aiMsg.setAnswerMode(answerMode.name());
+        aiMsg.setPluginUsed(pluginUsed);
         aiMsg.setResponseTime((int) elapsed);
         messageMapper.insert(aiMsg);
 

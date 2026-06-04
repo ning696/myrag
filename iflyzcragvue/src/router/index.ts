@@ -35,16 +35,34 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/plugins',
+      name: 'Plugins',
+      component: () => import('@/views/PluginsView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
       path: '/',
       redirect: '/documents'
     }
   ]
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore()
   if (to.meta.requiresAuth && !userStore.token) {
     next('/login')
+    return
+  }
+  if (userStore.token && !userStore.user) {
+    try {
+      await userStore.fetchMe()
+    } catch {
+      next('/login')
+      return
+    }
+  }
+  if (to.meta.requiresAdmin && userStore.user?.role !== 'ADMIN') {
+    next('/documents')
   } else if (to.path === '/login' && userStore.token) {
     next('/documents')
   } else {

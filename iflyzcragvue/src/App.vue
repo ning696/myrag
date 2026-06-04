@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { ChatDotRound, Files, UploadFilled } from '@element-plus/icons-vue'
+import { ChatDotRound, Files, Setting, UploadFilled } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -10,16 +10,23 @@ const userStore = useUserStore()
 
 const isAuthPage = computed(() => route.path === '/login')
 
-const navItems = [
-  { path: '/documents', label: '知识库', description: '文档与入库状态', icon: Files },
-  { path: '/upload', label: '上传入库', description: '解析与切片预览', icon: UploadFilled },
-  { path: '/chat', label: '智能问答', description: '基于知识库回答', icon: ChatDotRound }
-]
+const navItems = computed(() => {
+  const items = [
+    { path: '/documents', label: '知识库', description: '文档与入库状态', icon: Files },
+    { path: '/upload', label: '上传入库', description: '解析与切片预览', icon: UploadFilled },
+    { path: '/chat', label: '智能问答', description: '基于知识库回答', icon: ChatDotRound }
+  ]
+  if (userStore.user?.role === 'ADMIN') {
+    items.push({ path: '/plugins', label: '插件管理', description: '启停与参数配置', icon: Setting })
+  }
+  return items
+})
 
 const activePath = computed(() => {
   if (route.path.startsWith('/documents')) return '/documents'
   if (route.path.startsWith('/upload')) return '/upload'
   if (route.path.startsWith('/chat')) return '/chat'
+  if (route.path.startsWith('/plugins')) return '/plugins'
   return route.path
 })
 

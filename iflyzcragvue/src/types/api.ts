@@ -66,21 +66,45 @@ export interface ChatMessage {
   content: string
   citations?: Citation[]
   confidence?: number
-  answerMode?: 'CHAT' | 'RAG_ANSWER' | 'NO_KB_HIT' | 'REALTIME_UNAVAILABLE'
+  answerMode?: 'CHAT' | 'RAG_ANSWER' | 'NO_KB_HIT' | 'WEB_SEARCH' | 'REALTIME_UNAVAILABLE'
   routeReason?: string
   createdAt: string
 }
 
 export interface Citation {
   n: number
-  documentId: number
-  documentName: string
-  chunkIndex: number
+  documentId?: number
+  documentName?: string
+  chunkIndex?: number
   content: string
   score: number
+  sourceType?: 'document' | 'web'
+  title?: string
+  url?: string
+  publishedDate?: string
 }
 
 export interface ChatRequest {
   sessionId: string
   query: string
+}
+
+export interface PluginConfig {
+  pluginName: string
+  description: string
+  enabled: boolean
+  hookType: 'before' | 'after' | 'both'
+  priority: number
+  configJson: string
+  registered: boolean
+}
+
+export interface PluginToggleRequest {
+  enabled: boolean
+}
+
+export interface PluginConfigRequest {
+  configJson?: string
+  hookType?: 'before' | 'after' | 'both'
+  priority?: number
 }

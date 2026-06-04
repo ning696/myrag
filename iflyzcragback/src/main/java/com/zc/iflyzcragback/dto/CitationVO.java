@@ -25,4 +25,23 @@ public class CitationVO {
     private String content;
     /** 检索分数。 */
     private Double score;
+    /** 来源类型：document / web。 */
+    private String sourceType;
+    /** 网页标题。 */
+    private String title;
+    /** 网页 URL。 */
+    private String url;
+    /** 网页发布时间。 */
+    private String publishedDate;
+
+    public CitationVO(Integer n, Long documentId, String documentName,
+                      Integer chunkIndex, String content, Double score) {
+        this.n = n;
+        this.documentId = documentId;
+        this.documentName = documentName;
+        this.chunkIndex = chunkIndex;
+        this.content = content;
+        this.score = score;
+        this.sourceType = "document";
+    }
 }
