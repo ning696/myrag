@@ -12,13 +12,23 @@ import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSeriali
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 @Configuration
+/**
+ * Redis 配置。
+ *
+ * <p>Redis 在本项目中用于登录失败计数、文档切块预览、入库进度等临时状态。
+ * 这里配置 key 使用字符串序列化，value 使用 JSON 序列化。</p>
+ */
 public class RedisConfig {
 
     @Bean
+    /**
+     * 创建通用 RedisTemplate。
+     */
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
         RedisTemplate<String, Object> tpl = new RedisTemplate<>();
         tpl.setConnectionFactory(factory);
 
+        // value 采用 JSON 序列化，便于保存 VO、Map 等对象。
         ObjectMapper om = new ObjectMapper();
         om.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
         om.activateDefaultTyping(

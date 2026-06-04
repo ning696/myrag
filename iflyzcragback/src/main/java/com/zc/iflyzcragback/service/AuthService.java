@@ -20,6 +20,12 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 认证业务服务。
+ *
+ * <p>负责用户名密码登录、登录失败次数限制、JWT 生成和当前用户信息查询。
+ * 登录成功后前端拿到 token，后续接口通过 JwtAuthenticationFilter 识别用户身份。</p>
+ */
 public class AuthService {
 
     private final UserMapper userMapper;
@@ -31,6 +37,12 @@ public class AuthService {
     private static final int MAX_FAIL_COUNT = 5;
     private static final long LOCK_MINUTES = 15;
 
+    /**
+     * 用户登录。
+     *
+     * <p>流程：检查失败次数 -> 查询用户 -> 校验账号状态 -> 校验密码 ->
+     * 清理失败计数 -> 签发 JWT -> 返回用户信息。</p>
+     */
     public LoginResponse login(LoginRequest req) {
         String failKey = LOGIN_FAIL_KEY + req.getUsername();
         Integer failCount = (Integer) redisTemplate.opsForValue().get(failKey);
@@ -50,6 +62,7 @@ public class AuthService {
         }
 
         if (!passwordEncoder.matches(req.getPassword(), user.getPassword())) {
+            // 密码错误时记录失败次数，防止暴力破解。
             incrFailCount(failKey);
             throw new BizException("用户名或密码错误");
         }
@@ -66,6 +79,9 @@ public class AuthService {
         return new LoginResponse(token, userVO);
     }
 
+    /**
+     * 增加登录失败次数，并在第一次失败时设置锁定窗口 TTL。
+     */
     private void incrFailCount(String key) {
         Long count = redisTemplate.opsForValue().increment(key);
         if (count != null && count == 1) {
@@ -73,6 +89,9 @@ public class AuthService {
         }
     }
 
+    /**
+     * 查询当前用户信息。
+     */
     public UserVO me(Long userId) {
         UserEntity user = userMapper.selectById(userId);
         if (user == null) {

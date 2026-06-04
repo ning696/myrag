@@ -28,6 +28,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * RAG 对话编排器。
+ *
+ * <p>这是智能对话的核心流程入口。它会把一次用户提问串成完整链路：
+ * 读取历史 -> 判断问题类型 -> 查询改写 -> 混合检索 -> 构造 Prompt ->
+ * 调用流式大模型 -> 推送 SSE -> 保存问答记录。</p>
+ */
 public class RagOrchestrator {
 
     private final QueryRouter queryRouter;
@@ -39,27 +46,38 @@ public class RagOrchestrator {
     private final RagProperties props;
     private final ObjectMapper objectMapper;
 
+    /**
+     * 开启一次流式对话。
+     *
+     * <p>SseEmitter 会让前端边接收 token 边展示答案，体验上类似 ChatGPT 打字输出。</p>
+     */
     public SseEmitter chat(String sessionId, String query, Long userId) {
         SseEmitter emitter = new SseEmitter(60_000L);
         long startTime = System.currentTimeMillis();
 
         new Thread(() -> {
             try {
+                // 1. 最近历史只用于路由、改写和上下文补全，不会无限制塞给模型。
                 List<ChatMessageEntity> history = loadHistory(sessionId);
+                // 2. 先判断问题类型，决定走普通聊天、知识库问答，还是提示实时能力不可用。
                 QueryRouter.RouteDecision decision = queryRouter.route(query, history);
 
                 if (decision.route() == QueryRoute.REALTIME_UNAVAILABLE) {
+                    // 当前系统未接入实时搜索，所以不能编造实时行情/天气/新闻等答案。
                     List<ChatMessage> messages = promptBuilder.buildRealtimeUnavailableMessages(query, history);
                     streamAndSave(emitter, sessionId, query, messages, AnswerMode.REALTIME_UNAVAILABLE,
                             null, decision.reason(), null, startTime);
                     return;
                 }
 
+                // 3. 查询改写可以生成多个等价问法，提高检索召回率。
                 List<String> queries = queryRewriter.rewrite(query, history);
+                // 4. 混合检索同时使用向量相似度和 BM25 关键词检索。
                 HybridRetriever.Result retrieved = hybridRetriever.retrieve(
                         queries, userId, props.getRetrieval().getTopK());
                 List<RetrievedChunk> chunks = retrieved.chunks();
                 double confidence = retrieved.topVectorScore();
+                // 5. 根据路由判断和检索强度，决定最终回答模式。
                 AnswerMode answerMode = resolveAnswerMode(decision, retrieved);
                 boolean chatOverride = decision.route() == QueryRoute.CHAT && answerMode == AnswerMode.RAG_ANSWER;
 
@@ -67,6 +85,7 @@ public class RagOrchestrator {
                         decision.route(), answerMode, chunks.size(), confidence, chatOverride);
 
                 if (answerMode == AnswerMode.CHAT) {
+                    // 普通聊天不带知识库资料，避免模型假装引用资料。
                     List<ChatMessage> messages = promptBuilder.buildChatMessages(query, history);
                     streamAndSave(emitter, sessionId, query, messages, AnswerMode.CHAT,
                             null, decision.reason(), null, startTime);
@@ -74,12 +93,14 @@ public class RagOrchestrator {
                 }
 
                 if (answerMode == AnswerMode.NO_KB_HIT) {
+                    // 知识库没命中可靠依据时，明确告诉模型“不能编造”。
                     List<ChatMessage> messages = promptBuilder.buildNoKbHitMessages(query, history);
                     streamAndSave(emitter, sessionId, query, messages, AnswerMode.NO_KB_HIT,
                             null, decision.reason(), null, startTime);
                     return;
                 }
 
+                // RAG 命中资料：把 chunk 拼入 Prompt，并要求回答引用来源。
                 List<ChatMessage> messages = promptBuilder.buildMessages(query, chunks, history);
                 streamAndSave(emitter, sessionId, query, messages, AnswerMode.RAG_ANSWER,
                         confidence, decision.reason(), chunks, startTime);
@@ -97,6 +118,11 @@ public class RagOrchestrator {
         return emitter;
     }
 
+    /**
+     * 加载最近若干轮历史。
+     *
+     * <p>数据库按时间倒序取最近消息，再反转成正常对话顺序，方便模型理解上下文。</p>
+     */
     List<ChatMessageEntity> loadHistory(String sessionId) {
         List<ChatMessageEntity> history = messageMapper.selectList(
                 new LambdaQueryWrapper<ChatMessageEntity>()
@@ -109,6 +135,12 @@ public class RagOrchestrator {
         return history;
     }
 
+    /**
+     * 根据路由结果和检索结果决定回答模式。
+     *
+     * <p>如果路由模型误把知识库问题判成闲聊，但向量检索分数很高，
+     * 这里会覆盖为 RAG_ANSWER，避免漏答文档中的问题。</p>
+     */
     AnswerMode resolveAnswerMode(QueryRouter.RouteDecision decision, HybridRetriever.Result retrieved) {
         if (decision.route() == QueryRoute.REALTIME_UNAVAILABLE) {
             return AnswerMode.REALTIME_UNAVAILABLE;
@@ -127,6 +159,9 @@ public class RagOrchestrator {
         return chunks.isEmpty() ? AnswerMode.NO_KB_HIT : AnswerMode.RAG_ANSWER;
     }
 
+    /**
+     * 调用流式大模型，把 token 逐个推给前端，并在结束时保存完整问答。
+     */
     private void streamAndSave(SseEmitter emitter,
                                String sessionId,
                                String query,
@@ -146,6 +181,7 @@ public class RagOrchestrator {
         chatModel.chat(chatRequest, new StreamingChatResponseHandler() {
             @Override
             public void onPartialResponse(String token) {
+                // token 是模型增量输出的一小段文本，前端收到后可以立即追加显示。
                 answerBuilder.append(token);
                 if (!emitterActive.get()) {
                     return;
@@ -161,6 +197,7 @@ public class RagOrchestrator {
             @Override
             public void onCompleteResponse(ChatResponse response) {
                 try {
+                    // RAG 回答完成后，把引用信息单独发给前端，方便展示来源卡片。
                     if (emitterActive.get() && chunks != null && !chunks.isEmpty()) {
                         emitter.send(SseEmitter.event().name("citations").data(
                                 objectMapper.writeValueAsString(buildCitations(chunks))));
@@ -194,6 +231,9 @@ public class RagOrchestrator {
         });
     }
 
+    /**
+     * 构造 SSE done 事件载荷，告诉前端本次回答模式、置信度和路由原因。
+     */
     private String donePayload(AnswerMode answerMode, Double confidence, String routeReason) throws IOException {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("answerMode", answerMode.name());
@@ -202,6 +242,9 @@ public class RagOrchestrator {
         return objectMapper.writeValueAsString(payload);
     }
 
+    /**
+     * 将检索 chunk 转换成前端可展示的引用对象。
+     */
     private List<CitationVO> buildCitations(List<RetrievedChunk> chunks) {
         List<CitationVO> citations = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
@@ -220,6 +263,9 @@ public class RagOrchestrator {
         return citations;
     }
 
+    /**
+     * 保存用户问题和助手回答，供会话历史和后续上下文使用。
+     */
     private void saveMessage(String sessionId, String query, String answer,
                              long startTime, Double confidence, AnswerMode answerMode) {
         long elapsed = System.currentTimeMillis() - startTime;

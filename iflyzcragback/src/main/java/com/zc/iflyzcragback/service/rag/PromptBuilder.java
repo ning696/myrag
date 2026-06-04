@@ -14,6 +14,13 @@ import java.util.List;
 
 @Slf4j
 @Component
+/**
+ * Prompt 构造器。
+ *
+ * <p>Prompt 是发给大模型的“指令 + 上下文 + 用户问题”。同一个用户问题，
+ * 在普通聊天、未命中知识库、RAG 命中资料、实时数据不可用等场景下，应该给模型不同的系统指令。
+ * 本类集中管理这些 Prompt，避免规则散落在业务代码里。</p>
+ */
 public class PromptBuilder {
 
     private static final String CHAT_SYSTEM_PROMPT = """
@@ -39,6 +46,7 @@ public class PromptBuilder {
 
     public List<ChatMessage> buildChatMessages(String query, List<ChatMessageEntity> history) {
         List<ChatMessage> messages = new ArrayList<>();
+        // 普通聊天不拼接知识库资料，只给模型“不要编造业务事实”的行为边界。
         messages.add(SystemMessage.from(CHAT_SYSTEM_PROMPT));
         appendHistory(messages, history);
         messages.add(UserMessage.from(query));
@@ -67,6 +75,7 @@ public class PromptBuilder {
                                            List<RetrievedChunk> chunks,
                                            List<ChatMessageEntity> history) {
         List<ChatMessage> messages = new ArrayList<>();
+        // RAG 场景的核心：把检索到的 chunk 编号后放进系统消息，要求模型必须引用来源。
         messages.add(SystemMessage.from(buildSystemContent(chunks)));
 
         appendHistory(messages, history);
@@ -77,6 +86,7 @@ public class PromptBuilder {
 
     public List<ChatMessage> buildNoKbHitMessages(String query, List<ChatMessageEntity> history) {
         List<ChatMessage> messages = new ArrayList<>();
+        // 没有可靠 chunk 时，明确告诉模型不要补脑。
         messages.add(SystemMessage.from(NO_KB_HIT_SYSTEM_PROMPT));
         appendHistory(messages, history);
         messages.add(UserMessage.from(query));
@@ -85,12 +95,18 @@ public class PromptBuilder {
 
     public List<ChatMessage> buildRealtimeUnavailableMessages(String query, List<ChatMessageEntity> history) {
         List<ChatMessage> messages = new ArrayList<>();
+        // 实时问题不能用静态知识库假装回答，因此单独给出“无法实时查询”的边界。
         messages.add(SystemMessage.from(REALTIME_UNAVAILABLE_SYSTEM_PROMPT));
         appendHistory(messages, history);
         messages.add(UserMessage.from(query));
         return messages;
     }
 
+    /**
+     * 将历史对话还原成 LangChain4j 的消息格式。
+     *
+     * <p>这样模型能理解上下文，但最终回答仍受当前场景的系统 Prompt 约束。</p>
+     */
     private void appendHistory(List<ChatMessage> messages, List<ChatMessageEntity> history) {
         if (history == null) {
             return;
@@ -107,6 +123,11 @@ public class PromptBuilder {
         }
     }
 
+    /**
+     * 将检索片段组织成“来源 N”的参考资料块。
+     *
+     * <p>后续模型回答必须引用这些编号，前端也可以根据编号展示出处。</p>
+     */
     private String buildSystemContent(List<RetrievedChunk> chunks) {
         StringBuilder sb = new StringBuilder(RAG_SYSTEM_PROMPT).append("\n【参考资料】\n");
         for (int i = 0; i < chunks.size(); i++) {

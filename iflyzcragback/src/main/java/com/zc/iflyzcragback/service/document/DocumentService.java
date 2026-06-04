@@ -33,6 +33,13 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 文档业务服务。
+ *
+ * <p>这个类负责知识库文档的完整生命周期：上传文件、解析文本、切块预览、
+ * 确认入库、向量化、查看进度、列表展示和删除。对于智能对话系统来说，
+ * 这里是“把用户资料变成可检索知识”的入口。</p>
+ */
 public class DocumentService {
 
     private final DocumentMapper documentMapper;
@@ -48,6 +55,12 @@ public class DocumentService {
 
     private static final String INGEST_PROGRESS_KEY = "rag:ingest:";
 
+    /**
+     * 上传文档并生成切块预览。
+     *
+     * <p>注意：上传后并不会立刻写入向量库，而是先保存到 MinIO、解析文本、生成预览。
+     * 用户确认切块效果后，再调用 confirmIngestAsync 正式入库。</p>
+     */
     public UploadResponse upload(MultipartFile file, Long userId) {
         validateFile(file);
 
@@ -83,6 +96,11 @@ public class DocumentService {
         return new UploadResponse(doc.getId(), params, chunks);
     }
 
+    /**
+     * 根据用户调整后的参数重新切块。
+     *
+     * <p>这一步只更新 Redis 中的预览数据，不会影响已经入库的向量。</p>
+     */
     public UploadResponse rechunk(Long documentId, ChunkParams params, Long userId) {
         DocumentEntity doc = documentMapper.selectById(documentId);
         if (doc == null || !doc.getUserId().equals(userId)) {
@@ -103,6 +121,12 @@ public class DocumentService {
 
     @Async("ingestExecutor")
     @Transactional(rollbackFor = Exception.class)
+    /**
+     * 确认入库：把预览 chunk 写入 MySQL，并向量化后写入 Milvus。
+     *
+     * <p>这是耗时操作，所以使用 @Async 放到线程池执行。前端可以轮询 getIngestProgress
+     * 查看处理进度。</p>
+     */
     public void confirmIngestAsync(Long documentId, Long userId) {
         String progressKey = INGEST_PROGRESS_KEY + documentId;
         try {
@@ -125,6 +149,7 @@ public class DocumentService {
 
             for (int i = 0; i < chunks.size(); i++) {
                 ChunkPreviewVO preview = chunks.get(i);
+                // MySQL 保存 chunk 原文和可展示信息，方便列表、引用、BM25 关键词检索。
                 DocumentChunkEntity entity = new DocumentChunkEntity();
                 entity.setDocumentId(documentId);
                 entity.setUserId(userId);
@@ -135,6 +160,8 @@ public class DocumentService {
                 chunkEntities.add(entity);
 
                 // 构造 TextSegment（含 metadata）
+                // metadata 会跟着向量一起写入 Milvus。检索时可用 userId 做数据隔离，
+                // 回答时可用 documentName/chunkIndex/title 生成来源引用。
                 Metadata meta = Metadata.from(Map.of(
                         "userId", userId.toString(),
                         "documentId", documentId.toString(),
@@ -147,6 +174,7 @@ public class DocumentService {
                 segments.add(TextSegment.from(preview.getContent(), meta));
 
                 // 分批向量化
+                // 批量大小过大会慢或超时，过小会增加请求次数；由 rag.ingest.embed-batch-size 控制。
                 if ((i + 1) % props.getIngest().getEmbedBatchSize() == 0 || i == chunks.size() - 1) {
                     embedAndStore(segments, chunkEntities, i + 1);
                     updateProgress(progressKey, "processing", i + 1, total);
@@ -178,6 +206,9 @@ public class DocumentService {
         }
     }
 
+    /**
+     * 对一批 chunk 做向量化，并分别写入 MySQL 与 Milvus。
+     */
     private void embedAndStore(List<TextSegment> segments, List<DocumentChunkEntity> entities, int processed) {
         if (segments.isEmpty()) return;
 
@@ -200,11 +231,17 @@ public class DocumentService {
         }
     }
 
+    /**
+     * 将入库进度写入 Redis。Redis 设置 TTL，避免进度 key 永久占用空间。
+     */
     private void updateProgress(String key, String status, int processed, int total) {
         IngestProgressVO progress = new IngestProgressVO(status, processed, total);
         redisTemplate.opsForValue().set(key, progress, props.getIngest().getProgressTtlSeconds(), TimeUnit.SECONDS);
     }
 
+    /**
+     * 查询异步入库进度，供前端轮询展示。
+     */
     public IngestProgressVO getIngestProgress(Long documentId) {
         String key = INGEST_PROGRESS_KEY + documentId;
         Object obj = redisTemplate.opsForValue().get(key);
@@ -214,6 +251,9 @@ public class DocumentService {
         return (IngestProgressVO) obj;
     }
 
+    /**
+     * 分页查询当前用户的文档列表。
+     */
     public Page<DocumentVO> list(Long userId, int page, int size) {
         Page<DocumentEntity> p = documentMapper.selectPage(
                 new Page<>(page, size),
@@ -226,6 +266,12 @@ public class DocumentService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    /**
+     * 删除文档及其 chunk。
+     *
+     * <p>这里会删除 MySQL 记录、MinIO 文件和预览缓存。Milvus 删除当前仍保留 TODO，
+     * 后续应补充按 documentId metadata 过滤删除向量的逻辑。</p>
+     */
     public void delete(Long documentId, Long userId) {
         DocumentEntity doc = documentMapper.selectById(documentId);
         if (doc == null || !doc.getUserId().equals(userId)) {
@@ -251,12 +297,18 @@ public class DocumentService {
         log.info("文档删除成功: documentId={}", documentId);
     }
 
+    /**
+     * Entity 转 VO，只把前端需要看的字段返回出去。
+     */
     private DocumentVO toVO(DocumentEntity entity) {
         DocumentVO vo = new DocumentVO();
         BeanUtils.copyProperties(entity, vo);
         return vo;
     }
 
+    /**
+     * 校验上传文件是否合法。
+     */
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BizException("文件为空");
@@ -267,11 +319,17 @@ public class DocumentService {
         }
     }
 
+    /**
+     * 从文件名中提取扩展名，例如 report.pdf -> pdf。
+     */
     private String getExtension(String filename) {
         if (filename == null || !filename.contains(".")) return "";
         return filename.substring(filename.lastIndexOf('.') + 1);
     }
 
+    /**
+     * 获取上传文件输入流，并把底层异常转换成业务异常，方便统一返回给前端。
+     */
     private InputStream getInputStream(MultipartFile file) {
         try {
             return file.getInputStream();

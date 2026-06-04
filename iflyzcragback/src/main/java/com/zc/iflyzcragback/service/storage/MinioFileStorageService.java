@@ -18,12 +18,21 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @ConditionalOnProperty(prefix = "minio", name = "enabled", havingValue = "true")
+/**
+ * MinIO 文件存储实现。
+ *
+ * <p>MinIO 可以理解为私有化对象存储。这里用它保存用户上传的原始文档，
+ * 后续重新切块或删除文档时都通过 objectKey 定位文件。</p>
+ */
 public class MinioFileStorageService implements FileStorageService {
 
     private final MinioClient minioClient;
     private final MinioProperties properties;
 
     @Override
+    /**
+     * 上传文件到 MinIO，并返回对象 key。
+     */
     public String upload(Long userId, String originalName, String contentType, long size, InputStream input) {
         String objectKey = buildObjectKey(userId, originalName);
         try {
@@ -40,6 +49,9 @@ public class MinioFileStorageService implements FileStorageService {
     }
 
     @Override
+    /**
+     * 从 MinIO 下载文件。调用方负责关闭返回的输入流。
+     */
     public InputStream download(String objectKey) {
         try {
             return minioClient.getObject(GetObjectArgs.builder()
@@ -52,6 +64,9 @@ public class MinioFileStorageService implements FileStorageService {
     }
 
     @Override
+    /**
+     * 删除 MinIO 对象。对象不存在时只记录日志，不影响业务流程。
+     */
     public void delete(String objectKey) {
         try {
             minioClient.removeObject(RemoveObjectArgs.builder()
@@ -69,6 +84,12 @@ public class MinioFileStorageService implements FileStorageService {
         }
     }
 
+    /**
+     * 生成对象 key。
+     *
+     * <p>格式为 userId/随机UUID-原文件名。userId 让文件天然按用户分目录，
+     * UUID 避免两个同名文件互相覆盖。</p>
+     */
     private String buildObjectKey(Long userId, String originalName) {
         String safeName = originalName == null ? "file" : originalName.replaceAll("[\\\\/]", "_");
         return userId + "/" + UUID.randomUUID() + "-" + safeName;

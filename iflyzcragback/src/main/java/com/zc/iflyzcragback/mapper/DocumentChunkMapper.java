@@ -10,6 +10,12 @@ import org.apache.ibatis.annotations.Select;
 import java.util.List;
 
 @Mapper
+/**
+ * 文档 chunk Mapper。
+ *
+ * <p>除 MyBatis-Plus 的基础 CRUD 外，这里还定义了 BM25 全文检索 SQL，
+ * 用于混合检索中的关键词召回。</p>
+ */
 public interface DocumentChunkMapper extends BaseMapper<DocumentChunkEntity> {
 
     /**

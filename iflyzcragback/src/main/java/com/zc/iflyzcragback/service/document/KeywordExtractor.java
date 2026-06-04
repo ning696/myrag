@@ -9,15 +9,26 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Component
+/**
+ * 关键词提取器。
+ *
+ * <p>关键词用于给 chunk 增加 metadata，也可以支撑 MySQL 的 BM25 检索。
+ * 当前实现偏轻量：用 Jieba 分词，过滤停用词和过短词，再按词频取前 N 个。</p>
+ */
 public class KeywordExtractor {
 
+    // JiebaSegmenter 支持中文分词，比简单按空格切分更适合中文知识库。
     private final JiebaSegmenter segmenter = new JiebaSegmenter();
+    // 停用词是高频但没有检索价值的词，过滤后关键词更集中。
     private static final Set<String> STOP_WORDS = Set.of(
             "的", "了", "在", "是", "我", "有", "和", "就", "不", "人",
             "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去",
             "你", "会", "着", "没有", "看", "好", "自己", "这"
     );
 
+    /**
+     * 从文本中提取最多 topN 个关键词。
+     */
     public List<String> extract(String text, int topN) {
         if (text == null || text.isBlank()) {
             return List.of();
@@ -26,6 +37,7 @@ public class KeywordExtractor {
         List<String> words = segmenter.sentenceProcess(text);
         Map<String, Integer> freq = new HashMap<>();
         for (String w : words) {
+            // 过滤太短、停用词、纯符号/纯数字，减少进入 metadata 的噪声。
             if (w.length() < 2 || STOP_WORDS.contains(w) || !w.matches(".*[一-龥a-zA-Z].*")) {
                 continue;
             }

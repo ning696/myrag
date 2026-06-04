@@ -15,11 +15,19 @@ import java.nio.charset.StandardCharsets;
 
 @Component
 @RequiredArgsConstructor
+/**
+ * 未认证访问处理器。
+ *
+ * <p>当用户没有登录或 token 无效，却访问需要认证的接口时，Spring Security 会调用这里返回 401。</p>
+ */
 public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
     private final ObjectMapper objectMapper;
 
     @Override
+    /**
+     * 返回统一的 401 JSON 响应。
+     */
     public void commence(HttpServletRequest request,
                          HttpServletResponse response,
                          AuthenticationException ex) throws IOException {

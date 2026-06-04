@@ -12,6 +12,13 @@ import java.util.List;
 
 @Slf4j
 @Service
+/**
+ * 查询路由器。
+ *
+ * <p>智能对话系统通常不应该所有问题都走知识库。例如“你好”适合普通聊天，
+ * “今天股票多少钱”需要实时数据，而“根据我上传的文档总结一下”才应该走 RAG。
+ * 本类用一个轻量的大模型判断问题类型，决定后续回答链路。</p>
+ */
 public class QueryRouter {
 
     private static final String ROUTER_PROMPT = """
@@ -51,11 +58,18 @@ public class QueryRouter {
         }
     }
 
+    /**
+     * 判断用户问题应该进入哪条链路。
+     *
+     * <p>路由失败时默认返回 UNCLEAR，后续编排器会把它当作知识库问答处理，
+     * 这样比直接报错更友好。</p>
+     */
     public RouteDecision route(String query, List<ChatMessageEntity> history) {
         if (chatModel == null) {
             return RouteDecision.fallback("ChatLanguageModel 未配置，默认进入知识库问答");
         }
         try {
+            // 路由 Prompt 要求模型只输出 JSON，方便后端稳定解析。
             String prompt = ROUTER_PROMPT.formatted(query, formatRoutingContext(history));
             String output = chatModel.chat(prompt);
             JsonNode root = objectMapper.readTree(stripMarkdownFence(output));
@@ -72,6 +86,9 @@ public class QueryRouter {
         }
     }
 
+    /**
+     * 将模型输出的字符串安全地转换为枚举；无法识别时返回 UNCLEAR。
+     */
     private QueryRoute parseRoute(String value) {
         try {
             return QueryRoute.valueOf(value == null ? "" : value.trim());
@@ -80,6 +97,9 @@ public class QueryRouter {
         }
     }
 
+    /**
+     * 大模型有时会把 JSON 包在 ```json 代码块里，这里去掉外层 Markdown 标记。
+     */
     private String stripMarkdownFence(String output) {
         if (output == null) {
             return "{}";
@@ -92,12 +112,21 @@ public class QueryRouter {
         return trimmed.trim();
     }
 
+    /**
+     * 将置信度限制在 0 到 1 之间，避免异常输出影响后续判断。
+     */
     private double clamp(double value) {
         if (value < 0) return 0;
         if (value > 1) return 1;
         return value;
     }
 
+    /**
+     * 提取最近历史作为“消歧上下文”。
+     *
+     * <p>这里不会把历史当作回答依据，只帮助模型理解代词或省略表达，
+     * 例如“那这个怎么处理？”里的“这个”。</p>
+     */
     String formatRoutingContext(List<ChatMessageEntity> history) {
         if (history == null || history.isEmpty()) {
             return "(无)";
@@ -118,6 +147,9 @@ public class QueryRouter {
         return sb.isEmpty() ? "(无)" : sb.toString();
     }
 
+    /**
+     * 限制历史片段长度，防止路由 Prompt 过长、成本过高。
+     */
     private String truncate(String value, int maxLength) {
         String normalized = value.replaceAll("\\s+", " ").trim();
         if (normalized.length() <= maxLength) {
@@ -126,6 +158,13 @@ public class QueryRouter {
         return normalized.substring(0, maxLength) + "...";
     }
 
+    /**
+     * 路由判断结果。
+     *
+     * @param route 目标链路
+     * @param confidence 模型对路由判断的置信度
+     * @param reason 简短原因，主要用于日志和排查
+     */
     public record RouteDecision(QueryRoute route, double confidence, String reason) {
         public static RouteDecision fallback(String reason) {
             return new RouteDecision(QueryRoute.UNCLEAR, 0.0, reason);
