@@ -27,6 +27,7 @@ public class ChatMessageEntity {
     private Integer tokensUsed;
     private Integer responseTime;
     private Double confidence;
+    private String answerMode;
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

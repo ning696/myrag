@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS `chat_messages` (
     `tokens_used`      INT          NOT NULL DEFAULT 0                      COMMENT '消耗 token 数',
     `response_time`    INT          NOT NULL DEFAULT 0                      COMMENT '响应时间（毫秒）',
     `confidence`       DOUBLE                DEFAULT NULL                   COMMENT '检索 topScore，对应 ChatResponse.confidence；前端低置信提示用',
+    `answer_mode`      VARCHAR(40)           DEFAULT NULL                   COMMENT '回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / REALTIME_UNAVAILABLE',
     `created_at`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP      COMMENT '创建时间',
     `deleted`          TINYINT      NOT NULL DEFAULT 0                      COMMENT '逻辑删除：0=未删, 1=已删',
     PRIMARY KEY (`id`),
@@ -173,6 +174,23 @@ CREATE TABLE IF NOT EXISTS `chat_messages` (
     CONSTRAINT `fk_messages_session`
         FOREIGN KEY (`session_id`) REFERENCES `chat_sessions` (`session_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息记录表';
+
+-- 老库兼容：chat_messages 已存在时补齐 answer_mode 字段。
+SET @chat_messages_answer_mode_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'chat_messages'
+      AND COLUMN_NAME = 'answer_mode'
+);
+SET @chat_messages_answer_mode_ddl := IF(
+    @chat_messages_answer_mode_exists = 0,
+    'ALTER TABLE `chat_messages` ADD COLUMN `answer_mode` VARCHAR(40) DEFAULT NULL COMMENT ''回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / REALTIME_UNAVAILABLE'' AFTER `confidence`',
+    'SELECT 1'
+);
+PREPARE chat_messages_answer_mode_stmt FROM @chat_messages_answer_mode_ddl;
+EXECUTE chat_messages_answer_mode_stmt;
+DEALLOCATE PREPARE chat_messages_answer_mode_stmt;
 
 -- ---------------------------------------------------------------------
 -- 4.1 message_feedback 用户消息反馈

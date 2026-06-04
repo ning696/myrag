@@ -125,7 +125,7 @@ rag:
     max-turns: 4             # 对话历史保留最近 N 轮
   query-rewrite:
     enabled: true            # 启用查询改写（短 query 自动跳过）
-    min-query-length: 15
+    min-query-length: 8
   rerank:
     enabled: false           # P0 关闭，P1 打开
     provider: jina           # jina / noop

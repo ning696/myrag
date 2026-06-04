@@ -37,6 +37,7 @@ const handleSend = async () => {
 
   const token = localStorage.getItem('token')
   await fetchEventSource('http://localhost:8080/api/chat/messages/stream', {
+    openWhenHidden: true,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -53,7 +54,11 @@ const handleSend = async () => {
       } else if (ev.event === 'done') {
         if (ev.data && ev.data !== '{}') {
           const data = JSON.parse(ev.data)
-          chatStore.updateMessage(aiMsg.id, { confidence: data.confidence })
+          chatStore.updateMessage(aiMsg.id, {
+            answerMode: data.answerMode,
+            confidence: data.confidence ?? undefined,
+            routeReason: data.routeReason
+          })
         }
         sending.value = false
       }
@@ -88,6 +93,20 @@ const confidenceClass = (confidence?: number) => {
   if (confidence >= 0.75) return 'high'
   if (confidence >= 0.65) return 'medium'
   return 'low'
+}
+
+const answerMetaText = (msg: { answerMode?: string; confidence?: number }) => {
+  if (msg.answerMode === 'CHAT') return '普通对话'
+  if (msg.answerMode === 'NO_KB_HIT') return '未命中知识库'
+  if (msg.answerMode === 'REALTIME_UNAVAILABLE') return '需要实时数据'
+  return confidenceText(msg.confidence)
+}
+
+const answerMetaClass = (msg: { answerMode?: string; confidence?: number }) => {
+  if (msg.answerMode === 'CHAT') return 'chat'
+  if (msg.answerMode === 'NO_KB_HIT') return 'no-hit'
+  if (msg.answerMode === 'REALTIME_UNAVAILABLE') return 'realtime'
+  return confidenceClass(msg.confidence)
 }
 
 const formatTime = (value: string) => {
@@ -173,7 +192,7 @@ onMounted(async () => {
             </div>
 
             <div v-if="msg.role !== 'user'" class="answer-meta">
-              <span :class="['confidence', confidenceClass(msg.confidence)]">{{ confidenceText(msg.confidence) }}</span>
+              <span :class="['confidence', answerMetaClass(msg)]">{{ answerMetaText(msg) }}</span>
               <span>{{ formatTime(msg.createdAt) }}</span>
             </div>
 
@@ -471,6 +490,17 @@ onMounted(async () => {
 .confidence.low {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.confidence.chat {
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+}
+
+.confidence.no-hit,
+.confidence.realtime {
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 
 .citations {

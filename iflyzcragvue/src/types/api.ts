@@ -66,6 +66,8 @@ export interface ChatMessage {
   content: string
   citations?: Citation[]
   confidence?: number
+  answerMode?: 'CHAT' | 'RAG_ANSWER' | 'NO_KB_HIT' | 'REALTIME_UNAVAILABLE'
+  routeReason?: string
   createdAt: string
 }
 

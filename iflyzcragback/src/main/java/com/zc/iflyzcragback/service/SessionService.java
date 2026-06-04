@@ -87,6 +87,7 @@ public class SessionService {
                 .role(entity.getRole())
                 .content(entity.getContent())
                 .confidence(entity.getConfidence())
+                .answerMode(entity.getAnswerMode())
                 .createdAt(entity.getCreatedAt())
                 .build();
     }

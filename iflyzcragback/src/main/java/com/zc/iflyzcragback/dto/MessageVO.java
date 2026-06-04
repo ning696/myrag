@@ -18,5 +18,6 @@ public class MessageVO {
     private String content;
     private List<CitationVO> citations;
     private Double confidence;
+    private String answerMode;
     private LocalDateTime createdAt;
 }

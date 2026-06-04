@@ -1,6 +1,7 @@
 package com.zc.iflyzcragback.service.rag;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zc.iflyzcragback.config.RagProperties;
 import com.zc.iflyzcragback.dto.CitationVO;
 import com.zc.iflyzcragback.entity.ChatMessageEntity;
@@ -19,19 +20,24 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RagOrchestrator {
 
+    private final QueryRouter queryRouter;
     private final QueryRewriter queryRewriter;
     private final HybridRetriever hybridRetriever;
     private final PromptBuilder promptBuilder;
     private final StreamingChatLanguageModel chatModel;
     private final ChatMessageMapper messageMapper;
     private final RagProperties props;
+    private final ObjectMapper objectMapper;
 
     public SseEmitter chat(String sessionId, String query, Long userId) {
         SseEmitter emitter = new SseEmitter(60_000L);
@@ -39,73 +45,44 @@ public class RagOrchestrator {
 
         new Thread(() -> {
             try {
-                // 1. 检索历史对话（最近 N 轮），DESC + LIMIT 取最近，再反转为旧→新
-                List<ChatMessageEntity> history = messageMapper.selectList(
-                        new LambdaQueryWrapper<ChatMessageEntity>()
-                                .eq(ChatMessageEntity::getSessionId, sessionId)
-                                .orderByDesc(ChatMessageEntity::getCreatedAt)
-                                .last("LIMIT " + (props.getHistory().getMaxTurns() * 2)));
-                Collections.reverse(history);
+                List<ChatMessageEntity> history = loadHistory(sessionId);
+                QueryRouter.RouteDecision decision = queryRouter.route(query, history);
 
-                // 2. 查询改写（短 query / 关闭 / 失败时返回 [query]）
+                if (decision.route() == QueryRoute.REALTIME_UNAVAILABLE) {
+                    List<ChatMessage> messages = promptBuilder.buildRealtimeUnavailableMessages(query, history);
+                    streamAndSave(emitter, sessionId, query, messages, AnswerMode.REALTIME_UNAVAILABLE,
+                            null, decision.reason(), null, startTime);
+                    return;
+                }
+
                 List<String> queries = queryRewriter.rewrite(query, history);
-
-                // 3. 混合检索（向量 + BM25 → RRF 融合）
                 HybridRetriever.Result retrieved = hybridRetriever.retrieve(
                         queries, userId, props.getRetrieval().getTopK());
                 List<RetrievedChunk> chunks = retrieved.chunks();
                 double confidence = retrieved.topVectorScore();
+                AnswerMode answerMode = resolveAnswerMode(decision, retrieved);
+                boolean chatOverride = decision.route() == QueryRoute.CHAT && answerMode == AnswerMode.RAG_ANSWER;
 
-                if (chunks.isEmpty()) {
-                    emitter.send(SseEmitter.event().name("token").data("根据现有知识库，我无法回答这个问题。"));
-                    emitter.send(SseEmitter.event().name("done").data("{}"));
-                    emitter.complete();
-                    saveMessage(sessionId, query, "根据现有知识库，我无法回答这个问题。", startTime, 0.0);
+                log.info("路由决策完成 | 原始路由={} | 最终模式={} | 命中数={} | 最高向量分数={} | 是否触发CHAT覆盖={}",
+                        decision.route(), answerMode, chunks.size(), confidence, chatOverride);
+
+                if (answerMode == AnswerMode.CHAT) {
+                    List<ChatMessage> messages = promptBuilder.buildChatMessages(query, history);
+                    streamAndSave(emitter, sessionId, query, messages, AnswerMode.CHAT,
+                            null, decision.reason(), null, startTime);
                     return;
                 }
 
-                // 4. 构造多消息 prompt（system + 历史 user/assistant + 当前 user）
+                if (answerMode == AnswerMode.NO_KB_HIT) {
+                    List<ChatMessage> messages = promptBuilder.buildNoKbHitMessages(query, history);
+                    streamAndSave(emitter, sessionId, query, messages, AnswerMode.NO_KB_HIT,
+                            null, decision.reason(), null, startTime);
+                    return;
+                }
+
                 List<ChatMessage> messages = promptBuilder.buildMessages(query, chunks, history);
-
-                // 5. 流式生成
-                StringBuilder answerBuilder = new StringBuilder();
-                ChatRequest chatRequest = ChatRequest.builder().messages(messages).build();
-                chatModel.chat(chatRequest, new StreamingChatResponseHandler() {
-                    @Override
-                    public void onPartialResponse(String token) {
-                        answerBuilder.append(token);
-                        try {
-                            emitter.send(SseEmitter.event().name("token").data(token));
-                        } catch (IOException e) {
-                            log.error("SSE 推送失败", e);
-                        }
-                    }
-
-                    @Override
-                    public void onCompleteResponse(ChatResponse response) {
-                        try {
-                            List<CitationVO> citations = buildCitations(chunks);
-                            emitter.send(SseEmitter.event().name("citations").data(citations));
-                            emitter.send(SseEmitter.event().name("done").data("{\"confidence\":" + confidence + "}"));
-                            emitter.complete();
-                            saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence);
-                        } catch (IOException e) {
-                            log.error("SSE 完成失败", e);
-                            emitter.completeWithError(e);
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable error) {
-                        log.error("LLM 生成失败", error);
-                        try {
-                            emitter.send(SseEmitter.event().name("error").data(error.getMessage()));
-                            emitter.completeWithError(error);
-                        } catch (IOException e) {
-                            log.error("SSE 错误推送失败", e);
-                        }
-                    }
-                });
+                streamAndSave(emitter, sessionId, query, messages, AnswerMode.RAG_ANSWER,
+                        confidence, decision.reason(), chunks, startTime);
             } catch (Exception e) {
                 log.error("RAG 对话失败", e);
                 try {
@@ -118,6 +95,111 @@ public class RagOrchestrator {
         }).start();
 
         return emitter;
+    }
+
+    List<ChatMessageEntity> loadHistory(String sessionId) {
+        List<ChatMessageEntity> history = messageMapper.selectList(
+                new LambdaQueryWrapper<ChatMessageEntity>()
+                        .eq(ChatMessageEntity::getSessionId, sessionId)
+                        .orderByDesc(ChatMessageEntity::getCreatedAt)
+                        .orderByDesc(ChatMessageEntity::getId)
+                        .last("LIMIT " + (props.getHistory().getMaxTurns() * 2)));
+        history = new ArrayList<>(history);
+        Collections.reverse(history);
+        return history;
+    }
+
+    AnswerMode resolveAnswerMode(QueryRouter.RouteDecision decision, HybridRetriever.Result retrieved) {
+        if (decision.route() == QueryRoute.REALTIME_UNAVAILABLE) {
+            return AnswerMode.REALTIME_UNAVAILABLE;
+        }
+
+        List<RetrievedChunk> chunks = retrieved == null ? List.of() : retrieved.chunks();
+        double topVectorScore = retrieved == null ? 0.0 : retrieved.topVectorScore();
+
+        if (decision.route() == QueryRoute.CHAT) {
+            boolean strongEvidence = !chunks.isEmpty()
+                    && decision.confidence() < props.getRouting().getStrongChatConfidence()
+                    && topVectorScore >= props.getRouting().getChatOverrideMinScore();
+            return strongEvidence ? AnswerMode.RAG_ANSWER : AnswerMode.CHAT;
+        }
+
+        return chunks.isEmpty() ? AnswerMode.NO_KB_HIT : AnswerMode.RAG_ANSWER;
+    }
+
+    private void streamAndSave(SseEmitter emitter,
+                               String sessionId,
+                               String query,
+                               List<ChatMessage> messages,
+                               AnswerMode answerMode,
+                               Double confidence,
+                               String routeReason,
+                               List<RetrievedChunk> chunks,
+                               long startTime) {
+        StringBuilder answerBuilder = new StringBuilder();
+        AtomicBoolean emitterActive = new AtomicBoolean(true);
+        emitter.onCompletion(() -> emitterActive.set(false));
+        emitter.onTimeout(() -> emitterActive.set(false));
+        emitter.onError(error -> emitterActive.set(false));
+
+        ChatRequest chatRequest = ChatRequest.builder().messages(messages).build();
+        chatModel.chat(chatRequest, new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String token) {
+                answerBuilder.append(token);
+                if (!emitterActive.get()) {
+                    return;
+                }
+                try {
+                    emitter.send(SseEmitter.event().name("token").data(token));
+                } catch (IOException | IllegalStateException e) {
+                    emitterActive.set(false);
+                    log.warn("SSE client disconnected while sending token, sessionId={}", sessionId);
+                }
+            }
+
+            @Override
+            public void onCompleteResponse(ChatResponse response) {
+                try {
+                    if (emitterActive.get() && chunks != null && !chunks.isEmpty()) {
+                        emitter.send(SseEmitter.event().name("citations").data(
+                                objectMapper.writeValueAsString(buildCitations(chunks))));
+                    }
+                    if (emitterActive.get()) {
+                        emitter.send(SseEmitter.event().name("done").data(donePayload(answerMode, confidence, routeReason)));
+                        emitter.complete();
+                    }
+                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence, answerMode);
+                } catch (IOException | IllegalStateException e) {
+                    emitterActive.set(false);
+                    log.warn("SSE client disconnected before completion, sessionId={}", sessionId);
+                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence, answerMode);
+                }
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                log.error("LLM generation failed", error);
+                if (!emitterActive.get()) {
+                    return;
+                }
+                try {
+                    emitter.send(SseEmitter.event().name("error").data(error.getMessage()));
+                    emitter.completeWithError(error);
+                } catch (IOException | IllegalStateException e) {
+                    emitterActive.set(false);
+                    log.warn("SSE client disconnected before error event, sessionId={}", sessionId);
+                }
+            }
+        });
+    }
+
+    private String donePayload(AnswerMode answerMode, Double confidence, String routeReason) throws IOException {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("answerMode", answerMode.name());
+        payload.put("confidence", confidence);
+        payload.put("routeReason", routeReason == null ? "" : routeReason);
+        return objectMapper.writeValueAsString(payload);
     }
 
     private List<CitationVO> buildCitations(List<RetrievedChunk> chunks) {
@@ -139,7 +221,7 @@ public class RagOrchestrator {
     }
 
     private void saveMessage(String sessionId, String query, String answer,
-                             long startTime, double confidence) {
+                             long startTime, Double confidence, AnswerMode answerMode) {
         long elapsed = System.currentTimeMillis() - startTime;
 
         ChatMessageEntity userMsg = new ChatMessageEntity();
@@ -153,9 +235,10 @@ public class RagOrchestrator {
         aiMsg.setRole("assistant");
         aiMsg.setContent(answer);
         aiMsg.setConfidence(confidence);
+        aiMsg.setAnswerMode(answerMode.name());
         aiMsg.setResponseTime((int) elapsed);
         messageMapper.insert(aiMsg);
 
-        log.info("对话已保存: sessionId={}, elapsed={}ms", sessionId, elapsed);
+        log.info("对话已保存: sessionId={}, answerMode={}, elapsed={}ms", sessionId, answerMode, elapsed);
     }
 }

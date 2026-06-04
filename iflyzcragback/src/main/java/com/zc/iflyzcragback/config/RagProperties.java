@@ -17,6 +17,7 @@ public class RagProperties {
     private QueryRewrite queryRewrite = new QueryRewrite();
     private Rerank rerank = new Rerank();
     private Embedding embedding = new Embedding();
+    private Routing routing = new Routing();
 
     @Data
     public static class Retrieval {
@@ -68,5 +69,11 @@ public class RagProperties {
     @Data
     public static class Embedding {
         private String version = "dashscope-v2-1536";
+    }
+
+    @Data
+    public static class Routing {
+        private double chatOverrideMinScore = 0.72;
+        private double strongChatConfidence = 0.95;
     }
 }
