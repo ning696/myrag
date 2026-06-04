@@ -256,17 +256,21 @@ onMounted(async () => {
 }
 
 .session-list {
-  display: grid;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   gap: 6px;
   min-height: 0;
-  flex: 1;
-  overflow: auto;
+  overflow-y: auto;
   padding: 10px;
+  scrollbar-gutter: stable;
 }
 
 .session-item {
   display: flex;
   width: 100%;
+  min-height: 76px;
+  flex: 0 0 76px;
   align-items: flex-start;
   gap: 10px;
   border: 0;
