@@ -121,6 +121,7 @@ public class SessionService {
                 .citations(parseSourceDocuments(entity.getSourceDocuments()))
                 .confidence(entity.getConfidence())
                 .answerMode(entity.getAnswerMode())
+                .skillUsed(entity.getSkillUsed())
                 .createdAt(entity.getCreatedAt())
                 .build();
     }

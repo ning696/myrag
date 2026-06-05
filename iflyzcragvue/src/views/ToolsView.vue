@@ -3,13 +3,16 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, Refresh, Setting, Tools } from '@element-plus/icons-vue'
 import * as toolApi from '@/api/tool'
-import type { ToolConfig, ToolGlobalConfig, ToolParamDefinition, ToolParamValue } from '@/types/api'
+import * as skillApi from '@/api/skill'
+import type { SkillConfig, ToolConfig, ToolGlobalConfig, ToolParamDefinition, ToolParamValue } from '@/types/api'
 
 const tools = ref<ToolConfig[]>([])
+const skills = ref<SkillConfig[]>([])
 const globalConfig = ref<ToolGlobalConfig | null>(null)
 const loading = ref(false)
 const globalSaving = ref(false)
 const saving = reactive<Record<string, boolean>>({})
+const skillSaving = reactive<Record<string, boolean>>({})
 const paramSaving = reactive<Record<string, boolean>>({})
 const toolForms = reactive<Record<string, Record<string, ToolParamValue>>>({})
 const globalForm = reactive<Record<string, ToolParamValue>>({})
@@ -33,12 +36,14 @@ const syncToolForms = () => {
 const loadTools = async () => {
   loading.value = true
   try {
-    const [toolRes, globalRes] = await Promise.all([
+    const [toolRes, globalRes, skillRes] = await Promise.all([
       toolApi.listTools(),
       toolApi.getGlobalToolParams(),
+      skillApi.listSkills(),
     ])
     tools.value = toolRes.data
     globalConfig.value = globalRes.data
+    skills.value = skillRes.data
     syncToolForms()
     syncParamForm(globalForm, globalConfig.value.params)
   } finally {
@@ -56,6 +61,19 @@ const toggleTool = async (tool: ToolConfig) => {
     tool.enabled = !tool.enabled
   } finally {
     saving[tool.toolName] = false
+  }
+}
+
+const toggleSkill = async (skill: SkillConfig) => {
+  skillSaving[skill.skillName] = true
+  try {
+    const res = await skillApi.toggleSkill(skill.skillName, { enabled: skill.enabled })
+    Object.assign(skill, res.data)
+    ElMessage.success(skill.enabled ? '技能已启用' : '技能已禁用')
+  } catch {
+    skill.enabled = !skill.enabled
+  } finally {
+    skillSaving[skill.skillName] = false
   }
 }
 
@@ -248,10 +266,47 @@ onMounted(loadTools)
       </article>
     </div>
 
-    <div v-if="!loading && !tools.length" class="panel empty-state">
+    <section class="skill-section">
+      <header class="section-title-row">
+        <div>
+          <h2>技能管理</h2>
+          <p>任务型多轮对话能力，启停后立即影响新的技能触发。</p>
+        </div>
+      </header>
+
+      <div class="tool-grid">
+        <article v-for="skill in skills" :key="skill.skillName" class="panel tool-panel">
+          <header class="section-head">
+            <div class="tool-title">
+              <el-icon><Tools /></el-icon>
+              <div>
+                <h2>{{ skill.displayName || skill.skillName }}</h2>
+                <span>{{ skill.description }}</span>
+              </div>
+            </div>
+            <el-switch
+              v-model="skill.enabled"
+              :loading="skillSaving[skill.skillName]"
+              active-text="启用"
+              inactive-text="禁用"
+              @change="toggleSkill(skill)"
+            />
+          </header>
+
+          <div class="tool-status">
+            <el-tag :type="skill.available ? 'success' : 'warning'" size="small">
+              {{ skill.available ? '可用' : '不可用' }}
+            </el-tag>
+            <el-tag size="small">{{ skill.skillName }}</el-tag>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <div v-if="!loading && !tools.length && !skills.length" class="panel empty-state">
       <el-icon><Tools /></el-icon>
-      <h3>暂无工具</h3>
-      <p>后端未注册可管理工具。</p>
+      <h3>暂无工具或技能</h3>
+      <p>后端未注册可管理能力。</p>
     </div>
   </section>
 </template>
@@ -273,6 +328,23 @@ onMounted(loadTools)
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 14px;
+}
+
+.skill-section {
+  display: grid;
+  gap: 12px;
+}
+
+.section-title-row h2 {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.section-title-row p {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .global-panel {

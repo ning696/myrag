@@ -17,7 +17,7 @@ const navItems = computed(() => {
     { path: '/chat', label: '智能问答', description: '基于知识库回答', icon: ChatDotRound }
   ]
   if (userStore.user?.role === 'ADMIN') {
-    items.push({ path: '/tools', label: '工具管理', description: '启停实时工具', icon: Setting })
+    items.push({ path: '/tools', label: '工具与技能', description: '启停实时能力', icon: Setting })
   }
   return items
 })

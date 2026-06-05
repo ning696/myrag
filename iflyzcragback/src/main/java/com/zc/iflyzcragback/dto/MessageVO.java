@@ -30,6 +30,8 @@ public class MessageVO {
     private Double confidence;
     /** 回答模式。 */
     private String answerMode;
+    /** 使用的 Skill 名称。 */
+    private String skillUsed;
     /** 创建时间。 */
     private LocalDateTime createdAt;
 }

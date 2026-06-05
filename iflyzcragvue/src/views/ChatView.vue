@@ -57,7 +57,10 @@ const handleSend = async () => {
           chatStore.updateMessage(aiMsg.id, {
             answerMode: data.answerMode,
             confidence: data.confidence ?? undefined,
-            routeReason: data.routeReason
+            routeReason: data.routeReason,
+            skillUsed: data.skillUsed,
+            skillStep: data.skillStep,
+            skillCompleted: data.skillCompleted
           })
         }
         sending.value = false
@@ -95,10 +98,11 @@ const confidenceClass = (confidence?: number) => {
   return 'low'
 }
 
-const answerMetaText = (msg: { answerMode?: string; confidence?: number }) => {
+const answerMetaText = (msg: { answerMode?: string; confidence?: number; skillUsed?: string }) => {
   if (msg.answerMode === 'CHAT') return '普通对话'
   if (msg.answerMode === 'NO_KB_HIT') return '未命中知识库'
   if (msg.answerMode === 'TOOL_CALLING') return '工具调用'
+  if (msg.answerMode === 'SKILL') return msg.skillUsed ? `技能流程 · ${msg.skillUsed}` : '技能流程'
   if (msg.answerMode === 'REALTIME_UNAVAILABLE') return '需要实时数据'
   return confidenceText(msg.confidence)
 }
@@ -107,6 +111,7 @@ const answerMetaClass = (msg: { answerMode?: string; confidence?: number }) => {
   if (msg.answerMode === 'CHAT') return 'chat'
   if (msg.answerMode === 'NO_KB_HIT') return 'no-hit'
   if (msg.answerMode === 'TOOL_CALLING') return 'tool-calling'
+  if (msg.answerMode === 'SKILL') return 'skill'
   if (msg.answerMode === 'REALTIME_UNAVAILABLE') return 'realtime'
   return confidenceClass(msg.confidence)
 }
@@ -530,6 +535,7 @@ onMounted(async () => {
 
 .confidence.no-hit,
 .confidence.tool-calling,
+.confidence.skill,
 .confidence.realtime {
   background: var(--warning-soft);
   color: var(--warning);

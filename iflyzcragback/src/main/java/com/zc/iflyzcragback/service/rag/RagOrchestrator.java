@@ -6,6 +6,8 @@ import com.zc.iflyzcragback.config.RagProperties;
 import com.zc.iflyzcragback.dto.CitationVO;
 import com.zc.iflyzcragback.entity.ChatMessageEntity;
 import com.zc.iflyzcragback.mapper.ChatMessageMapper;
+import com.zc.iflyzcragback.service.rag.skill.SkillOrchestrator;
+import com.zc.iflyzcragback.service.rag.skill.SkillTurnResult;
 import com.zc.iflyzcragback.service.rag.tool.RealtimeToolCallingService;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.segment.TextSegment;
@@ -43,6 +45,7 @@ public class RagOrchestrator {
     private final HybridRetriever hybridRetriever;
     private final PromptBuilder promptBuilder;
     private final RealtimeToolCallingService realtimeToolCallingService;
+    private final SkillOrchestrator skillOrchestrator;
     private final StreamingChatLanguageModel chatModel;
     private final ChatMessageMapper messageMapper;
     private final RagProperties props;
@@ -61,7 +64,13 @@ public class RagOrchestrator {
             try {
                 // 1. 最近历史只用于路由、改写和上下文补全，不会无限制塞给模型。
                 List<ChatMessageEntity> history = loadHistory(sessionId);
-                // 2. 先判断问题类型，决定走普通聊天、知识库问答，还是提示实时能力不可用。
+                // 2. Skill 是有状态任务流程。已有流程优先继续；新触发流程会直接返回下一步提示。
+                java.util.Optional<SkillTurnResult> skillResult = skillOrchestrator.handle(sessionId, query, userId);
+                if (skillResult.isPresent()) {
+                    streamSkillAndSave(emitter, sessionId, query, skillResult.get(), startTime);
+                    return;
+                }
+                // 3. 先判断问题类型，决定走普通聊天、知识库问答，还是提示实时能力不可用。
                 QueryRouter.RouteDecision decision = queryRouter.route(query, history);
 
                 if (shouldUseToolCalling(decision.route())) {
@@ -90,14 +99,14 @@ public class RagOrchestrator {
                     return;
                 }
 
-                // 3. 查询改写可以生成多个等价问法，提高检索召回率。
+                // 4. 查询改写可以生成多个等价问法，提高检索召回率。
                 List<String> queries = queryRewriter.rewrite(query, history);
-                // 4. 混合检索同时使用向量相似度和 BM25 关键词检索。
+                // 5. 混合检索同时使用向量相似度和 BM25 关键词检索。
                 HybridRetriever.Result retrieved = hybridRetriever.retrieve(
                         queries, userId, props.getRetrieval().getTopK());
                 List<RetrievedChunk> chunks = retrieved.chunks();
                 double confidence = retrieved.topVectorScore();
-                // 5. 根据路由判断和检索强度，决定最终回答模式。
+                // 6. 根据路由判断和检索强度，决定最终回答模式。
                 AnswerMode answerMode = resolveAnswerMode(decision, retrieved);
                 boolean chatOverride = decision.route() == QueryRoute.CHAT && answerMode == AnswerMode.RAG_ANSWER;
 
@@ -302,6 +311,20 @@ public class RagOrchestrator {
         saveMessage(sessionId, query, answer, startTime, confidence, answerMode, toolUsed, sourceDocuments);
     }
 
+    private void streamSkillAndSave(SseEmitter emitter,
+                                    String sessionId,
+                                    String query,
+                                    SkillTurnResult result,
+                                    long startTime) throws IOException {
+        emitter.send(SseEmitter.event().name("token").data(result.answer()));
+        emitter.send(SseEmitter.event().name("done").data(
+                donePayload(AnswerMode.SKILL, null, result.reason(), List.of(),
+                        result.skillName(), result.skillStep(), result.completed())));
+        emitter.complete();
+        saveMessage(sessionId, query, result.answer(), startTime, null, AnswerMode.SKILL,
+                null, null, result.skillName());
+    }
+
     /**
      * 构造 SSE done 事件载荷，告诉前端本次回答模式、置信度和路由原因。
      */
@@ -313,11 +336,26 @@ public class RagOrchestrator {
                                Double confidence,
                                String routeReason,
                                List<String> usedTools) throws IOException {
+        return donePayload(answerMode, confidence, routeReason, usedTools, null, null, null);
+    }
+
+    private String donePayload(AnswerMode answerMode,
+                               Double confidence,
+                               String routeReason,
+                               List<String> usedTools,
+                               String skillUsed,
+                               String skillStep,
+                               Boolean skillCompleted) throws IOException {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("answerMode", answerMode.name());
         payload.put("confidence", confidence);
         payload.put("routeReason", routeReason == null ? "" : routeReason);
         payload.put("usedTools", usedTools == null ? List.of() : usedTools);
+        if (skillUsed != null) {
+            payload.put("skillUsed", skillUsed);
+            payload.put("skillStep", skillStep);
+            payload.put("skillCompleted", skillCompleted);
+        }
         return objectMapper.writeValueAsString(payload);
     }
 
@@ -358,6 +396,18 @@ public class RagOrchestrator {
                              AnswerMode answerMode,
                              String toolUsed,
                              String sourceDocuments) {
+        saveMessage(sessionId, query, answer, startTime, confidence, answerMode, toolUsed, sourceDocuments, null);
+    }
+
+    private void saveMessage(String sessionId,
+                             String query,
+                             String answer,
+                             long startTime,
+                             Double confidence,
+                             AnswerMode answerMode,
+                             String toolUsed,
+                             String sourceDocuments,
+                             String skillUsed) {
         long elapsed = System.currentTimeMillis() - startTime;
 
         ChatMessageEntity userMsg = new ChatMessageEntity();
@@ -373,6 +423,7 @@ public class RagOrchestrator {
         aiMsg.setConfidence(confidence);
         aiMsg.setAnswerMode(answerMode.name());
         aiMsg.setToolUsed(toolUsed);
+        aiMsg.setSkillUsed(skillUsed);
         aiMsg.setSourceDocuments(sourceDocuments);
         aiMsg.setResponseTime((int) elapsed);
         messageMapper.insert(aiMsg);

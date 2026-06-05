@@ -14,6 +14,8 @@ public enum AnswerMode {
     NO_KB_HIT,
     /** 模型自主调用一个或多个工具后生成回答。 */
     TOOL_CALLING,
+    /** 有状态任务型技能流程。 */
+    SKILL,
     /** 用户需要实时外部数据，但当前系统未接入实时查询能力。 */
     REALTIME_UNAVAILABLE
 }

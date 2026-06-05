@@ -193,7 +193,7 @@ search:
 weather:
   provider: qweather
   api-key: ${WEATHER_API_KEY:}
-  endpoint: https://devapi.qweather.com/v7
+  api-host: ${WEATHER_API_HOST:}
   timeout: 5000
 
 # 备选 LLM Provider 配置（保留作切换参考；当前未启用）

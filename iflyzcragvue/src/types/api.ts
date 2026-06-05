@@ -66,8 +66,11 @@ export interface ChatMessage {
   content: string
   citations?: Citation[]
   confidence?: number
-  answerMode?: 'CHAT' | 'RAG_ANSWER' | 'NO_KB_HIT' | 'TOOL_CALLING' | 'REALTIME_UNAVAILABLE'
+  answerMode?: 'CHAT' | 'RAG_ANSWER' | 'NO_KB_HIT' | 'TOOL_CALLING' | 'SKILL' | 'REALTIME_UNAVAILABLE'
   routeReason?: string
+  skillUsed?: string
+  skillStep?: string
+  skillCompleted?: boolean
   createdAt: string
 }
 
@@ -123,4 +126,16 @@ export interface ToolParamsRequest {
 
 export interface ToolGlobalConfig {
   params: ToolParamDefinition[]
+}
+
+export interface SkillConfig {
+  skillName: string
+  displayName: string
+  description: string
+  enabled: boolean
+  available: boolean
+}
+
+export interface SkillToggleRequest {
+  enabled: boolean
 }
