@@ -35,9 +35,9 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
-      path: '/plugins',
-      name: 'Plugins',
-      component: () => import('@/views/PluginsView.vue'),
+      path: '/tools',
+      name: 'Tools',
+      component: () => import('@/views/ToolsView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
     },
     {

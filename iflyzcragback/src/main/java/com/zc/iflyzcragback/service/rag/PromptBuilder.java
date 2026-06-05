@@ -1,7 +1,6 @@
 package com.zc.iflyzcragback.service.rag;
 
 import com.zc.iflyzcragback.entity.ChatMessageEntity;
-import com.zc.iflyzcragback.plugin.WebSearchSource;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -60,7 +59,7 @@ public class PromptBuilder {
             1. 明确说明当前知识库没有足够依据；
             2. 不要编造事实、数字、价格、日期；
             3. 不要声称你已经查询了外部网站或实时数据；
-            4. 可以建议用户上传相关文档，或启用外部数据插件后再查询。
+            4. 可以建议用户上传相关文档，或启用外部数据工具后再查询。
             """;
 
     private static final String REALTIME_UNAVAILABLE_SYSTEM_PROMPT = """
@@ -70,17 +69,6 @@ public class PromptBuilder {
             2. 不要给出任何具体实时价格、行情、天气、新闻、汇率、股票现价；
             3. 不要声称你已经查询了外部网站或实时数据；
             4. 可以建议用户稍后重试、检查 Tavily 配置，或上传包含相关数据的文档后再查询。
-            """;
-
-    private static final String WEB_SEARCH_SYSTEM_PROMPT = """
-            你是联网问答助手。请严格基于下方“网页资料”回答用户问题：
-
-            【规则】
-            1. 只能使用“网页资料”中的信息回答，不要补充未列出的网页或常识。
-            2. 每个事实性陈述必须标注来源编号，格式 `[网页 N]`。
-            3. 如果网页资料不足或来源之间冲突，必须明确说明，不要编造。
-            4. 涉及“当前/今天/最新/实时”时，说明答案基于本次搜索结果。
-            5. 答案使用中文，结构清晰，必要时分点列出。
             """;
 
     public List<ChatMessage> buildMessages(String query,
@@ -109,16 +97,6 @@ public class PromptBuilder {
         List<ChatMessage> messages = new ArrayList<>();
         // 实时问题不能用静态知识库假装回答，因此单独给出“无法实时查询”的边界。
         messages.add(SystemMessage.from(REALTIME_UNAVAILABLE_SYSTEM_PROMPT));
-        appendHistory(messages, history);
-        messages.add(UserMessage.from(query));
-        return messages;
-    }
-
-    public List<ChatMessage> buildWebSearchMessages(String query,
-                                                    List<WebSearchSource> sources,
-                                                    List<ChatMessageEntity> history) {
-        List<ChatMessage> messages = new ArrayList<>();
-        messages.add(SystemMessage.from(buildWebSearchSystemContent(sources)));
         appendHistory(messages, history);
         messages.add(UserMessage.from(query));
         return messages;
@@ -166,19 +144,4 @@ public class PromptBuilder {
         return sb.toString();
     }
 
-    private String buildWebSearchSystemContent(List<WebSearchSource> sources) {
-        StringBuilder sb = new StringBuilder(WEB_SEARCH_SYSTEM_PROMPT).append("\n【网页资料】\n");
-        for (WebSearchSource source : sources) {
-            sb.append("[网页 ").append(source.getIndex()).append("] ")
-                    .append(source.getTitle() == null ? "" : source.getTitle()).append("\n");
-            if (source.getUrl() != null && !source.getUrl().isBlank()) {
-                sb.append("URL: ").append(source.getUrl()).append("\n");
-            }
-            if (source.getPublishedDate() != null && !source.getPublishedDate().isBlank()) {
-                sb.append("发布时间: ").append(source.getPublishedDate()).append("\n");
-            }
-            sb.append(source.getContent() == null ? "" : source.getContent()).append("\n\n");
-        }
-        return sb.toString();
-    }
 }

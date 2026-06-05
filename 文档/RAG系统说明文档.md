@@ -73,7 +73,7 @@ Token 前后端交互流程
 
 开发一个基于知识库检索的对话机器人，支持：
 1. 文档知识库检索（RAG 核心）
-2. 插件机制（可插拔功能）
+2. Tool 调用机制（实时能力）
 3. Skill 能力（多轮任务型功能）
 
 ### 技术要求与边界
@@ -87,16 +87,15 @@ Token 前后端交互流程
 - 向量库：Chroma  或 FAISS
 - Embedding 模型：sentence-transformers （如 BAAI/bge-small-zh ）
 - LLM：OpenAI API / 国内 API（DeepSeek、智谱、通义千问）
-2. 插件机制（简单但清晰）
-插件 = 独立的功能模块，可在检索前/后挂载执行。
+2. Tool 调用机制（简单但清晰）
+Tool = 暴露给 LangChain4j Function Calling 的后端方法，由模型按需调用。
 例子：
-- WebSearchPlugin ：搜索 API
-- TimePlugin ：识别时间相关问题并给出当前时间
-- CalculatorPlugin ：计算表达式
+- web_search ：搜索 API
+- current_time ：识别相对时间并给出当前时间
 设计要求：
-- 插件基于 统一接口（如 before_rag(query)  / after_rag(answer, context) ）
-- 支持动态启用/禁用
-- 配置文件控制加载哪些插件
+- Tool 基于 LangChain4j `@Tool` / `@P`
+- 支持管理员动态启用/禁用
+- 非敏感参数由配置文件控制，API Key 走环境变量
 3. Skill 能力（任务型多轮对话）
 Skill = 有状态的任务流程，例如：
 - 邮件发送 Skill：询问收件人 → 主题 → 内容 → 确认发送

@@ -10,8 +10,8 @@ public enum QueryRoute {
     CHAT,
     /** 需要查用户上传的知识库文档。 */
     KB_QA,
-    /** 需要联网搜索实时或最新公开信息。 */
-    WEB_SEARCH,
+    /** 需要模型自主决定调用一个或多个后端工具。 */
+    TOOL_CALLING,
     /** 需要当前价格、天气、新闻等实时外部数据。 */
     REALTIME_UNAVAILABLE,
     /** 模型无法明确判断问题类型。 */

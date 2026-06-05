@@ -98,7 +98,7 @@ const confidenceClass = (confidence?: number) => {
 const answerMetaText = (msg: { answerMode?: string; confidence?: number }) => {
   if (msg.answerMode === 'CHAT') return '普通对话'
   if (msg.answerMode === 'NO_KB_HIT') return '未命中知识库'
-  if (msg.answerMode === 'WEB_SEARCH') return '联网搜索'
+  if (msg.answerMode === 'TOOL_CALLING') return '工具调用'
   if (msg.answerMode === 'REALTIME_UNAVAILABLE') return '需要实时数据'
   return confidenceText(msg.confidence)
 }
@@ -106,7 +106,7 @@ const answerMetaText = (msg: { answerMode?: string; confidence?: number }) => {
 const answerMetaClass = (msg: { answerMode?: string; confidence?: number }) => {
   if (msg.answerMode === 'CHAT') return 'chat'
   if (msg.answerMode === 'NO_KB_HIT') return 'no-hit'
-  if (msg.answerMode === 'WEB_SEARCH') return 'web-search'
+  if (msg.answerMode === 'TOOL_CALLING') return 'tool-calling'
   if (msg.answerMode === 'REALTIME_UNAVAILABLE') return 'realtime'
   return confidenceClass(msg.confidence)
 }
@@ -214,7 +214,11 @@ onMounted(async () => {
             </div>
 
             <div v-if="msg.citations?.length" class="citations">
-              <div v-for="citation in msg.citations" :key="`${msg.id}-${citation.n}`" class="citation-item">
+              <div
+                v-for="(citation, citationIndex) in msg.citations"
+                :key="`${msg.id}-${citation.n}-${citation.url || citation.documentId || citationIndex}`"
+                class="citation-item"
+              >
                 <div>
                   <strong>
                     <a
@@ -525,7 +529,7 @@ onMounted(async () => {
 }
 
 .confidence.no-hit,
-.confidence.web-search,
+.confidence.tool-calling,
 .confidence.realtime {
   background: var(--warning-soft);
   color: var(--warning);

@@ -1,4 +1,4 @@
-# RAG 对话机器人系统设计文档
+﻿# RAG 对话机器人系统设计文档
 
 **版本：** v1.0  
 **编写日期：** 2026-06-02  
@@ -43,8 +43,8 @@
 **组件说明：**
 - **前端（Vue 3）**：提供用户界面，处理用户交互，调用后端 API
 - **Nginx**：反向代理，静态文件服务，负载均衡（生产环境）
-- **后端（Spring Boot 3）**：业务逻辑处理，RAG 流程编排，插件/Skill 管理，JWT 认证
-- **MySQL**：存储用户信息、文档元数据、会话记录、插件配置、Skill 状态
+- **后端（Spring Boot 3）**：业务逻辑处理，RAG 流程编排，工具/Skill 管理，JWT 认证
+- **MySQL**：存储用户信息、文档元数据、会话记录、工具配置、Skill 状态
 - **Milvus**：向量数据库，存储文档向量，提供相似度检索
 - **LLM API**：大语言模型服务（DeepSeek / 智谱 GLM / 通义千问 / OpenAI）
 
@@ -88,7 +88,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │              基础设施层 (Infrastructure Layer)            │
 │  - RAG 核心（rag/）：文档处理、向量化、检索               │
-│  - 插件系统（plugin/）：插件接口、生命周期管理            │
+│  - 工具调用系统（tool/）：工具接口、生命周期管理            │
 │  - Skill 系统（skill/）：状态机、会话管理                 │
 │  - 配置（config/）：CORS、Security、统一异常处理          │
 └─────────────────────────────────────────────────────────┘
@@ -109,7 +109,7 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 │   ├── UserController.java           # 用户信息管理 API
 │   ├── DocumentController.java       # 文档管理 API
 │   ├── ChatController.java           # 对话 API
-│   ├── PluginController.java         # 插件管理 API
+│   ├── ToolController.java         # 工具管理 API
 │   └── SkillController.java          # Skill 管理 API
 │
 ├── service/             # 业务逻辑层
@@ -117,7 +117,7 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 │   ├── UserService.java              # 用户管理服务
 │   ├── DocumentService.java          # 文档处理服务
 │   ├── ChatService.java              # 对话服务（RAG 编排）
-│   ├── PluginService.java            # 插件管理服务
+│   ├── ToolService.java            # 工具管理服务
 │   └── SkillService.java             # Skill 管理服务
 │
 ├── mapper/              # 数据访问层
@@ -125,7 +125,7 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 │   ├── DocumentMapper.java
 │   ├── ChatSessionMapper.java
 │   ├── ChatMessageMapper.java
-│   ├── PluginConfigMapper.java
+│   ├── ToolConfigMapper.java
 │   └── SkillStateMapper.java
 │
 ├── entity/              # 数据库实体
@@ -133,7 +133,7 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 │   ├── Document.java
 │   ├── ChatSession.java
 │   ├── ChatMessage.java
-│   ├── PluginConfig.java
+│   ├── ToolConfig.java
 │   └── SkillState.java
 │
 ├── dto/                 # 数据传输对象
@@ -143,14 +143,14 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 │   ├── DocumentUploadDTO.java
 │   ├── ChatRequestDTO.java
 │   ├── ChatResponseDTO.java
-│   ├── PluginConfigDTO.java
+│   ├── ToolConfigDTO.java
 │   └── SkillTriggerDTO.java
 │
 ├── vo/                  # 视图对象
 │   ├── UserVO.java
 │   ├── DocumentVO.java
 │   ├── ChatMessageVO.java
-│   └── PluginVO.java
+│   └── ToolVO.java
 │
 ├── security/            # 安全模块
 │   ├── JwtTokenProvider.java        # JWT Token 生成和验证
@@ -164,14 +164,13 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 │   ├── RetrievalService.java         # 检索服务
 │   └── LLMService.java               # LLM API 调用（OkHttp）
 │
-├── plugin/              # 插件系统
-│   ├── Plugin.java                   # 插件接口
-│   ├── PluginContext.java            # 插件上下文
-│   ├── PluginResult.java             # 插件返回结果
-│   ├── PluginManager.java            # 插件管理器
-│   ├── TimePlugin.java               # 时间插件
-│   ├── WebSearchPlugin.java          # 网络搜索插件
-│   └── CalculatorPlugin.java         # 计算器插件
+├── tool/              # 工具调用系统
+│   ├── ManagedTool.java            # 工具元数据与可用性接口
+│   ├── CurrentTimeTool.java        # current_time
+│   ├── WebSearchTool.java          # web_search
+│   ├── RealtimeAssistant.java      # LangChain4j AI Service
+│   ├── RealtimeToolCallingService.java # 工具调用编排
+│   └── ToolService.java            # tools_config 启停管理
 │
 ├── skill/               # Skill 系统
 │   ├── Skill.java                    # Skill 接口
@@ -221,8 +220,8 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 
 - **为什么用 LangChain4j**：需求要求支持多 LLM 切换（DeepSeek / 智谱 / 通义 / OpenAI），LangChain4j 对每家都有官方 module，切换只需替换 `ChatLanguageModel` Bean；同时把 PDF 解析、文本分块、Embedding、Milvus 写入封装成 `EmbeddingStoreIngestor` 流水线，省去大量胶水代码。
 - **为什么不用 Spring AI / Spring AI Alibaba**：Spring AI Alibaba 对通义千问深度优化，但其余 Provider 仅靠 OpenAI 兼容协议适配，多 LLM 切换不如 LangChain4j 一等公民支持。
-- **OkHttp 仍保留**：仅用于非 LLM 的外部 HTTP 调用（如 WebSearchPlugin、WeatherSkill），LLM 调用统一走 LangChain4j。
-- **Plugin / Skill 自研**：LangChain4j 的 `@Tool` 是 Function Calling 风格，依赖 LLM 自行决定调用；本项目的 Plugin 是关键词触发的硬编码钩子，Skill 是 DB 持久化状态机，二者均不替换为 LangChain4j 内置能力，仅在内部按需调用 `ChatLanguageModel`。
+- **OkHttp 仍保留**：仅用于非 LLM 的外部 HTTP 调用（如 WebSearchTool、WeatherSkill），LLM 调用统一走 LangChain4j。
+- **Tool 调用**：实时工具采用 LangChain4j `@Tool` + AI Service 自动执行模式；Skill 仍按状态机方向设计。
 
 ### 2.2 前端技术栈
 
@@ -301,7 +300,7 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 │ role             │      │
 │ content          │      │
 │ context          │      │
-│ plugin_used      │      │
+│ tool_used      │      │
 │ skill_used       │      │
 │ created_at       │      │
 └──────────────────┘      │
@@ -321,12 +320,12 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 └──────────────────┘
 
 ┌──────────────────┐
-│  plugins_config  │  插件配置
+│  tools_config  │  工具配置
 │──────────────────│
 │ id (PK)          │
-│ plugin_name      │
+│ tool_name      │
 │ enabled          │
-│ config_json      │
+│ application.yml 工具参数      │
 │ description      │
 │ created_at       │
 │ updated_at       │
@@ -428,7 +427,7 @@ CREATE TABLE chat_messages (
     content TEXT NOT NULL COMMENT '消息内容',
     context TEXT COMMENT '检索到的上下文（JSON 数组）',
     source_documents TEXT COMMENT '来源文档列表（JSON 数组）',
-    plugin_used VARCHAR(255) COMMENT '使用的插件名称',
+    tool_used VARCHAR(255) COMMENT '使用的工具名称',
     skill_used VARCHAR(255) COMMENT '使用的 Skill 名称',
     tokens_used INT DEFAULT 0 COMMENT '消耗的 token 数量',
     response_time INT DEFAULT 0 COMMENT '响应时间（毫秒）',
@@ -445,37 +444,26 @@ CREATE TABLE chat_messages (
 - `source_documents`：存储来源文档名称，前端渲染引用来源
 - `tokens_used` 和 `response_time`：用于性能监控和成本统计
 
-#### 3.2.5 plugins_config 表（插件配置）
+#### 3.2.5 tools_config 表（工具配置）
 
-存储插件的配置信息，支持动态启用/禁用。
+存储工具的启停状态。工具运行参数不进入数据库，统一由 `application.yml` 与环境变量维护。
 
 ```sql
-CREATE TABLE plugins_config (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '配置 ID',
-    plugin_name VARCHAR(100) NOT NULL UNIQUE COMMENT '插件名称（唯一）',
+CREATE TABLE tools_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '工具配置 ID',
+    tool_name VARCHAR(100) NOT NULL UNIQUE COMMENT '工具名称（唯一）',
+    display_name VARCHAR(100) NOT NULL COMMENT '展示名称',
+    description VARCHAR(500) COMMENT '工具描述',
     enabled BOOLEAN DEFAULT TRUE COMMENT '是否启用',
-    config_json TEXT COMMENT 'JSON 格式的插件参数',
-    description VARCHAR(500) COMMENT '插件描述',
-    hook_type VARCHAR(20) DEFAULT 'both' COMMENT '钩子类型：before/after/both',
-    priority INT DEFAULT 0 COMMENT '执行优先级（数字越大优先级越高）',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_enabled (enabled),
-    INDEX idx_priority (priority)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='插件配置表';
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted TINYINT DEFAULT 0 COMMENT '逻辑删除：0 未删除，1 已删除',
+    INDEX idx_tool_name (tool_name),
+    INDEX idx_enabled (enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工具配置表';
 ```
 
-**字段说明：**
-- `config_json`：插件参数（如 API Key、超时时间等），示例：
-  ```json
-  {
-    "api_key": "sk-xxx",
-    "timeout": 5000,
-    "max_retries": 3
-  }
-  ```
-- `hook_type`：插件钩子类型，用于过滤执行时机
-- `priority`：多个插件同时触发时的执行顺序
+默认工具为 `current_time` 和 `web_search`。前端只允许管理员启停工具，不提供 JSON 参数、Hook 或优先级编辑。
 
 #### 3.2.6 skill_states 表（Skill 状态）
 
@@ -591,13 +579,13 @@ public class Result<T> {
 | 获取会话历史 | GET | `/api/chat/sessions/{sessionId}` | 获取会话的消息历史 | ✅ |
 | 删除会话 | DELETE | `/api/chat/sessions/{sessionId}` | 删除会话及所有消息 | ✅ |
 
-#### 4.2.5 插件管理接口（仅管理员）
+#### 4.2.5 工具管理接口（仅管理员）
 
 | 接口 | 方法 | 路径 | 说明 | 是否需要认证 |
 |------|------|------|------|-------------|
-| 获取插件列表 | GET | `/api/plugins` | 获取所有插件配置 | ✅（ADMIN） |
-| 启用/禁用插件 | PUT | `/api/plugins/{name}/toggle` | 切换插件启用状态 | ✅（ADMIN） |
-| 更新插件配置 | PUT | `/api/plugins/{name}/config` | 更新插件参数 | ✅（ADMIN） |
+| 获取工具列表 | GET | `/api/tools` | 获取所有工具配置 | ✅（ADMIN） |
+| 启用/禁用工具 | PUT | `/api/tools/{name}/toggle` | 切换工具启用状态 | ✅（ADMIN） |
+| 更新工具配置 | PUT | `/api/tools/{name}/config` | 更新工具运行参数 | ✅（ADMIN） |
 
 #### 4.2.6 Skill 管理接口（仅管理员）
 
@@ -755,7 +743,7 @@ interface DocumentUploadResponse {
 {
   "sessionId": "uuid-xxx",  // 可选，首次对话时为空
   "message": "什么是 RAG？",
-  "usePlugins": true        // 可选，默认 true
+  "useTools": true        // 可选，默认 true
 }
 ```
 
@@ -777,7 +765,7 @@ Authorization: Bearer {token}
       "检索到的上下文片段 2"
     ],
     "sourceDocuments": ["document1.pdf", "document2.txt"],
-    "pluginUsed": null,
+    "toolUsed": null,
     "skillTriggered": null,
     "tokensUsed": 1500,
     "responseTime": 2500
@@ -791,7 +779,7 @@ Authorization: Bearer {token}
 interface ChatRequest {
   sessionId?: string;
   message: string;
-  usePlugins?: boolean;
+  useTools?: boolean;
 }
 
 interface ChatResponse {
@@ -799,7 +787,7 @@ interface ChatResponse {
   answer: string;
   context?: string[];
   sourceDocuments?: string[];
-  pluginUsed?: string;
+  toolUsed?: string;
   skillTriggered?: string;
   tokensUsed?: number;
   responseTime?: number;
@@ -842,13 +830,13 @@ Authorization: Bearer {token}
 }
 ```
 
-#### 4.3.6 PUT /api/plugins/{name}/toggle
+#### 4.3.6 PUT /api/tools/{name}/toggle
 
-**功能：** 启用或禁用插件。（需要管理员权限）
+**功能：** 启用或禁用工具。（需要管理员权限）
 
 **请求：**
 ```http
-PUT /api/plugins/TimePlugin/toggle
+PUT /api/tools/CurrentTimeTool/toggle
 Authorization: Bearer {token}
 Content-Type: application/json
 
@@ -861,9 +849,9 @@ Content-Type: application/json
 ```json
 {
   "code": 200,
-  "message": "插件状态已更新",
+  "message": "工具状态已更新",
   "data": {
-    "pluginName": "TimePlugin",
+    "toolName": "CurrentTimeTool",
     "enabled": true
   },
   "timestamp": 1717318200000
@@ -1008,8 +996,8 @@ public class DocumentService {
        │
        ▼
 ┌──────────────────────────────┐
-│ 插件前置钩子 beforeRag       │
-│ - TimePlugin / Calculator    │
+│ 工具调用 @Tool       │
+│ - CurrentTimeTool / Calculator    │
 │   命中即直接返回，跳过 RAG   │
 └──────┬───────────────────────┘
        │
@@ -1040,8 +1028,8 @@ public class DocumentService {
        │
        ▼
 ┌──────────────────────────────┐
-│ 插件后置钩子 afterRag        │
-│ - WebSearchPlugin 兜底补充   │
+│ 工具调用 @Tool        │
+│ - WebSearchTool 兜底补充   │
 └──────┬───────────────────────┘
        │
        ▼
@@ -1050,70 +1038,33 @@ public class DocumentService {
 └──────────────────────────────┘
 ```
 
-**LangChain4j 实现（ChatService.chat）：**
+**LangChain4j 实现（RagOrchestrator TOOL_CALLING 分支）：**
 
 ```java
-@Service
-@RequiredArgsConstructor
-public class ChatService {
-
-    private final PluginManager pluginManager;
-    private final EmbeddingStore<TextSegment> embeddingStore;
-    private final EmbeddingModel embeddingModel;
-    private final ChatLanguageModel chatModel;        // 由 LangChain4j auto-config 注入
-    private final ChatMessageMapper messageMapper;
-
-    private static final int TOP_K = 3;
-    private static final double MIN_SCORE = 0.6;
-
-    public ChatResponse chat(ChatRequest req, Long userId) {
-        String question = req.getMessage();
-
-        // 1. 插件前置钩子
-        PluginResult pre = pluginManager.executeBefore(question);
-        if (pre.isHasAnswer()) {
-            return buildResponse(req.getSessionId(), pre.getAnswer(), List.of(), pre.getPluginName(), null);
-        }
-
-        // 2. 构建按用户隔离的检索器
-        ContentRetriever retriever = EmbeddingStoreContentRetriever.builder()
-                .embeddingStore(embeddingStore)
-                .embeddingModel(embeddingModel)
-                .maxResults(TOP_K)
-                .minScore(MIN_SCORE)
-                .filter(metadataKey("userId").isEqualTo(userId.toString()))
-                .build();
-
-        // 3. 检索 Top-K segments
-        List<Content> contents = retriever.retrieve(Query.from(question));
-
-        // 4. 渲染 Prompt
-        Prompt prompt = buildPrompt(question, contents);
-
-        // 5. 调用 LLM
-        String answer = chatModel.generate(prompt.toUserMessage()).content().text();
-
-        // 6. 插件后置钩子
-        PluginResult post = pluginManager.executeAfter(answer, contents);
-        if (post.isHasAnswer()) {
-            answer = post.getAnswer();
-        }
-
-        // 7. 持久化消息（含来源溯源）
-        List<String> sources = contents.stream()
-                .map(c -> c.textSegment().metadata().getString("filename"))
-                .distinct().toList();
-        saveMessage(userId, req.getSessionId(), question, answer, contents);
-
-        return buildResponse(req.getSessionId(), answer, sources, null, post.getPluginName());
+if (route == QueryRoute.TOOL_CALLING) {
+    ToolCallingAnswer toolAnswer = realtimeToolCallingService.answer(query);
+    if (!toolAnswer.isAvailable()) {
+        streamRealtimeUnavailable(...);
+        return;
     }
+
+    streamDirectAndSave(
+            session,
+            query,
+            toolAnswer.answer(),
+            AnswerMode.TOOL_CALLING,
+            toolAnswer.citations(),
+            String.join(",", toolAnswer.usedTools())
+    );
+    return;
 }
 ```
 
 **关键点：**
-- `EmbeddingStoreContentRetriever` 把 "embed query → Milvus 检索 → 取 Top-K" 三步合一。
-- `Filter.metadataKey("userId").isEqualTo(...)` 翻译为 Milvus 的 `expr` 过滤表达式，实现数据隔离。
-- LLM 切换：把 `ChatLanguageModel` Bean 由 `OpenAiChatModel`（DeepSeek 走兼容协议）换成 `ZhipuAiChatModel` / `QwenChatModel` 即可，业务代码零改动。
+- `RealtimeToolCallingService` 按 `tools_config.enabled` 动态传入可用工具对象。
+- `RealtimeAssistant` 的系统提示约束模型：实时问题先取时间，公开实时信息再搜索，禁止编造实时数值。
+- `web_search` 的结果会转换为 `sourceType=web` 的 `CitationVO`，随 SSE `citations` 事件返回。
+- LLM 切换：把 `ChatLanguageModel` Bean 由 `OpenAiChatModel`（DeepSeek 走兼容协议）换成其他 LangChain4j Provider 即可。
 
 ### 5.3 分块策略
 
@@ -1250,327 +1201,63 @@ public class RagConfig {
 
 ---
 
-## 6. 插件系统设计
+## 6. 工具调用系统设计
 
-### 6.1 插件接口定义
+### 6.1 设计目标
 
-```java
-public interface Plugin {
-    /**
-     * 插件名称（唯一标识）
-     */
-    String getName();
-    
-    /**
-     * 插件描述
-     */
-    String getDescription();
-    
-    /**
-     * RAG 前置钩子
-     * @param query 用户问题
-     * @param context 插件上下文（配置、会话信息等）
-     * @return 如果插件已处理问题，返回答案；否则返回 null
-     */
-    PluginResult beforeRag(String query, PluginContext context);
-    
-    /**
-     * RAG 后置钩子
-     * @param answer RAG 生成的答案
-     * @param retrievedContext 检索到的上下文
-     * @param context 插件上下文
-     * @return 处理后的答案（可能增强或修改）
-     */
-    PluginResult afterRag(String answer, String retrievedContext, PluginContext context);
-}
+业务层不再存在自研工具钩子或工具管理器。实时能力统一通过 LangChain4j `@Tool` 暴露给模型，由 `RealtimeAssistant` AI Service 自动判断和执行工具调用。
+
+核心约束：
+- 工具启停存储在 `tools_config`，仅包含启停与展示信息。
+- 工具运行参数放在 `application.yml` 与环境变量中，前端不编辑 JSON 参数。
+- 当前内置工具只有 `current_time` 和 `web_search`。
+- 涉及“今天/当前/最新/实时”的公开信息查询时，系统提示要求先调用 `current_time`，再按需调用 `web_search`。
+- 工具失败或禁用时不得编造实时数值。
+
+### 6.2 后端结构
+
+```text
+service/rag/tool/
+├── ManagedTool.java              # 工具元数据与可用性接口
+├── CurrentTimeTool.java          # @Tool current_time
+├── WebSearchTool.java            # @Tool web_search
+├── WebSearchSource.java          # 搜索来源结构
+├── RealtimeAssistant.java        # LangChain4j AI Service 接口
+├── RealtimeToolCallingService.java # 构建 AI Service、汇总答案/引用/usedTools
+└── ToolService.java              # 管理 tools_config 启停
 ```
 
-**PluginResult 数据结构：**
-```java
-@Data
-@Builder
-public class PluginResult {
-    private boolean hasAnswer;       // 是否返回了答案
-    private String answer;           // 答案内容
-    private String pluginName;       // 插件名称
-    private Map<String, Object> metadata;  // 额外元数据
-}
+### 6.3 管理 API
+
+| 接口 | 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|------|
+| 获取工具列表 | GET | `/api/tools` | 返回已注册工具与启停状态 | ADMIN |
+| 启用/禁用工具 | PUT | `/api/tools/{name}/toggle` | 更新 `tools_config.enabled` | ADMIN |
+
+`ToolVO` 固定字段：`toolName`、`displayName`、`description`、`enabled`、`available`。
+
+### 6.4 调用流程
+
+```text
+用户问题
+  → QueryRouter 识别 TOOL_CALLING
+  → ToolService 按 tools_config.enabled 选择可用工具 Bean
+  → RealtimeToolCallingService 构建 RealtimeAssistant
+  → 模型自动调用 current_time / web_search
+  → 后端从 toolExecutions 提取 usedTools 与网页引用
+  → SSE 返回 token、citations、done
+  → chat_messages.tool_used 持久化本次工具名称
 ```
 
-**PluginContext 数据结构：**
-```java
-@Data
-@Builder
-public class PluginContext {
-    private String sessionId;        // 会话 ID
-    private Map<String, Object> config;  // 插件配置参数
-    private long startTime;          // 执行开始时间
-}
-```
+### 6.5 内置工具
 
-### 6.2 插件生命周期
+#### current_time
 
-```
-┌──────────────────┐
-│ 应用启动         │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 扫描插件类       │
-│ @Component       │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 初始化插件       │
-│ Spring Bean 注入 │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 加载数据库配置   │
-│ plugins_config   │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 注册到插件管理器 │
-│ PluginManager    │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 执行钩子         │
-│ before/after     │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 卸载（应用关闭） │
-└──────────────────┘
-```
+返回当前日期、时间、星期和时区，时区读取 `rag.tools.time.default-zone`。
 
-**PluginManager 实现：**
-```java
-@Service
-public class PluginManager {
-    private final Map<String, Plugin> plugins = new ConcurrentHashMap<>();
-    private final PluginConfigMapper pluginConfigMapper;
-    
-    @PostConstruct
-    public void init() {
-        // 从数据库加载插件配置
-        List<PluginConfig> configs = pluginConfigMapper.selectList(null);
-        for (PluginConfig config : configs) {
-            if (config.getEnabled()) {
-                Plugin plugin = plugins.get(config.getPluginName());
-                if (plugin != null) {
-                    // 插件已启用，初始化配置
-                }
-            }
-        }
-    }
-    
-    public PluginResult executeBefore(String query) {
-        for (Plugin plugin : getEnabledPlugins()) {
-            PluginResult result = plugin.beforeRag(query, buildContext(plugin));
-            if (result.isHasAnswer()) {
-                return result;  // 插件已处理，跳过后续插件
-            }
-        }
-        return PluginResult.builder().hasAnswer(false).build();
-    }
-    
-    public PluginResult executeAfter(String answer, String context) {
-        for (Plugin plugin : getEnabledPlugins()) {
-            PluginResult result = plugin.afterRag(answer, context, buildContext(plugin));
-            if (result.isHasAnswer()) {
-                answer = result.getAnswer();  // 更新答案
-            }
-        }
-        return PluginResult.builder().hasAnswer(true).answer(answer).build();
-    }
-}
-```
+#### web_search
 
-### 6.3 示例插件设计
-
-#### TimePlugin（时间查询插件）
-
-```java
-@Component
-public class TimePlugin implements Plugin {
-    
-    private static final List<String> TIME_KEYWORDS = Arrays.asList(
-        "现在几点", "当前时间", "今天日期", "今天星期几"
-    );
-    
-    @Override
-    public String getName() {
-        return "TimePlugin";
-    }
-    
-    @Override
-    public String getDescription() {
-        return "识别时间相关问题，直接返回当前时间";
-    }
-    
-    @Override
-    public PluginResult beforeRag(String query, PluginContext context) {
-        // 检查是否包含时间关键词
-        for (String keyword : TIME_KEYWORDS) {
-            if (query.contains(keyword)) {
-                String answer = formatCurrentTime(keyword);
-                return PluginResult.builder()
-                        .hasAnswer(true)
-                        .answer(answer)
-                        .pluginName(getName())
-                        .build();
-            }
-        }
-        return PluginResult.builder().hasAnswer(false).build();
-    }
-    
-    @Override
-    public PluginResult afterRag(String answer, String context, PluginContext pluginContext) {
-        // TimePlugin 不使用 afterRag 钩子
-        return PluginResult.builder().hasAnswer(false).build();
-    }
-    
-    private String formatCurrentTime(String keyword) {
-        LocalDateTime now = LocalDateTime.now();
-        
-        if (keyword.contains("日期")) {
-            return "今天是：" + now.format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
-        } else if (keyword.contains("星期")) {
-            String dayOfWeek = now.getDayOfWeek().getDisplayName(
-                TextStyle.FULL, Locale.CHINA
-            );
-            return "今天是：" + dayOfWeek;
-        } else {
-            return "当前时间是：" + now.format(
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-            );
-        }
-    }
-}
-```
-
-#### WebSearchPlugin（网络搜索插件）
-
-```java
-@Component
-public class WebSearchPlugin implements Plugin {
-    
-    @Autowired
-    private OkHttpClient okHttpClient;
-    
-    @Override
-    public String getName() {
-        return "WebSearchPlugin";
-    }
-    
-    @Override
-    public String getDescription() {
-        return "当 RAG 无结果时，自动调用网络搜索补充信息";
-    }
-    
-    @Override
-    public PluginResult beforeRag(String query, PluginContext context) {
-        // WebSearchPlugin 不使用 beforeRag 钩子
-        return PluginResult.builder().hasAnswer(false).build();
-    }
-    
-    @Override
-    public PluginResult afterRag(String answer, String context, PluginContext pluginContext) {
-        // 检查 RAG 是否返回"未找到相关信息"
-        if (answer.contains("未找到相关信息") || answer.contains("知识库中没有")) {
-            try {
-                // 调用搜索 API（示例使用 Bing Search API）
-                String searchResults = searchWeb(context);
-                String enhancedAnswer = answer + "\n\n补充信息（来自网络搜索）：\n" + searchResults;
-                
-                return PluginResult.builder()
-                        .hasAnswer(true)
-                        .answer(enhancedAnswer)
-                        .pluginName(getName())
-                        .build();
-            } catch (Exception e) {
-                // 搜索失败，返回原答案
-                return PluginResult.builder().hasAnswer(false).build();
-            }
-        }
-        return PluginResult.builder().hasAnswer(false).build();
-    }
-    
-    private String searchWeb(String query) {
-        // 调用搜索 API 实现（示例）
-        // 实际使用时需配置 API Key
-        return "搜索结果摘要...";
-    }
-}
-```
-
-#### CalculatorPlugin（计算器插件）
-
-```java
-@Component
-public class CalculatorPlugin implements Plugin {
-    
-    private static final Pattern MATH_PATTERN = Pattern.compile("(\\d+)\\s*([+\\-*/])\\s*(\\d+)");
-    
-    @Override
-    public String getName() {
-        return "CalculatorPlugin";
-    }
-    
-    @Override
-    public String getDescription() {
-        return "识别简单数学表达式并计算结果";
-    }
-    
-    @Override
-    public PluginResult beforeRag(String query, PluginContext context) {
-        Matcher matcher = MATH_PATTERN.matcher(query);
-        if (matcher.find()) {
-            try {
-                double num1 = Double.parseDouble(matcher.group(1));
-                String operator = matcher.group(2);
-                double num2 = Double.parseDouble(matcher.group(3));
-                
-                double result = calculate(num1, operator, num2);
-                String answer = String.format("计算结果：%s %s %s = %.2f", 
-                                             num1, operator, num2, result);
-                
-                return PluginResult.builder()
-                        .hasAnswer(true)
-                        .answer(answer)
-                        .pluginName(getName())
-                        .build();
-            } catch (Exception e) {
-                // 计算失败，交给 RAG 处理
-            }
-        }
-        return PluginResult.builder().hasAnswer(false).build();
-    }
-    
-    @Override
-    public PluginResult afterRag(String answer, String context, PluginContext pluginContext) {
-        return PluginResult.builder().hasAnswer(false).build();
-    }
-    
-    private double calculate(double num1, String operator, double num2) {
-        return switch (operator) {
-            case "+" -> num1 + num2;
-            case "-" -> num1 - num2;
-            case "*" -> num1 * num2;
-            case "/" -> num1 / num2;
-            default -> throw new IllegalArgumentException("不支持的运算符：" + operator);
-        };
-    }
-}
-```
+调用 Tavily 查询公开网页信息。API Key 只读取环境变量，搜索条数、深度、分数阈值、超时等读取 `rag.tools.web-search` 与 `search.*` 配置。搜索结果会转换为 `sourceType=web` 的引用返回前端。
 
 ---
 
@@ -2076,7 +1763,7 @@ milvus.password=${MILVUS_PASSWORD:}
 ### 8.3 权限控制
 
 **角色定义：**
-- **ADMIN**：管理员，可配置插件、Skill，管理所有用户的文档
+- **ADMIN**：管理员，可配置工具、Skill，管理所有用户的文档
 - **USER**：普通用户，可上传文档、进行对话，仅能访问自己的数据
 
 **权限矩阵：**
@@ -2086,7 +1773,7 @@ milvus.password=${MILVUS_PASSWORD:}
 | 上传文档 | ✅ | ✅ |
 | 删除文档 | ✅（仅自己的） | ✅（所有） |
 | 对话 | ✅ | ✅ |
-| 配置插件 | ❌ | ✅ |
+| 配置工具 | ❌ | ✅ |
 | 配置 Skill | ❌ | ✅ |
 | 查看所有用户 | ❌ | ✅ |
 
@@ -2386,15 +2073,15 @@ server {
 3. **提供降级方案**：超时后仅返回检索到的上下文，不生成答案
 4. **使用流式响应**：支持 SSE（Server-Sent Events），实时返回生成的文本
 
-### 10.3 插件执行阻塞主流程
+### 10.3 工具执行阻塞主流程
 
-**风险：** 插件执行时间过长（如网络搜索），阻塞用户响应。
+**风险：** 工具执行时间过长（如网络搜索），阻塞用户响应。
 
 **对策：**
-1. **插件异步执行**：使用 CompletableFuture 异步执行插件，不阻塞主线程
-2. **设置超时限制**：单个插件最多 5 秒，超过后终止执行
-3. **记录插件性能指标**：监控每个插件的平均执行时间，优化慢插件
-4. **插件优先级**：高优先级插件先执行，低优先级插件可选择性跳过
+1. **工具异步执行**：使用 CompletableFuture 异步执行工具，不阻塞主线程
+2. **设置超时限制**：单个工具最多 5 秒，超过后终止执行
+3. **记录工具性能指标**：监控每个工具的平均执行时间，优化慢工具
+4. **工具优先级**：高优先级工具先执行，低优先级工具可选择性跳过
 
 ### 10.4 文档处理失败
 
@@ -2458,4 +2145,10 @@ server {
 ---
 
 **文档结束**
+
+
+
+
+
+
 

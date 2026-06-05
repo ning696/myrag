@@ -11,23 +11,21 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("plugins_config")
+@TableName("tools_config")
 /**
- * 插件配置实体。
+ * Tool configuration entity.
  *
- * <p>插件本身由 Spring Bean 提供，这张表只控制启用状态、执行顺序和非敏感参数。</p>
+ * <p>Tool implementations live in code. This table only controls global enablement.</p>
  */
-public class PluginConfigEntity {
+public class ToolConfigEntity {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    private String pluginName;
-    private Integer enabled;
-    private String configJson;
+    private String toolName;
+    private String displayName;
     private String description;
-    private String hookType;
-    private Integer priority;
+    private Integer enabled;
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
@@ -38,7 +36,7 @@ public class PluginConfigEntity {
     @TableLogic
     private Integer deleted;
 
-    public boolean isEnabled() {
+    public boolean enabledAsBoolean() {
         return enabled != null && enabled == 1;
     }
 }

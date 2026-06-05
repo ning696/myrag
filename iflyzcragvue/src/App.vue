@@ -17,7 +17,7 @@ const navItems = computed(() => {
     { path: '/chat', label: '智能问答', description: '基于知识库回答', icon: ChatDotRound }
   ]
   if (userStore.user?.role === 'ADMIN') {
-    items.push({ path: '/plugins', label: '插件管理', description: '启停与参数配置', icon: Setting })
+    items.push({ path: '/tools', label: '工具管理', description: '启停实时工具', icon: Setting })
   }
   return items
 })
@@ -26,7 +26,7 @@ const activePath = computed(() => {
   if (route.path.startsWith('/documents')) return '/documents'
   if (route.path.startsWith('/upload')) return '/upload'
   if (route.path.startsWith('/chat')) return '/chat'
-  if (route.path.startsWith('/plugins')) return '/plugins'
+  if (route.path.startsWith('/tools')) return '/tools'
   return route.path
 })
 

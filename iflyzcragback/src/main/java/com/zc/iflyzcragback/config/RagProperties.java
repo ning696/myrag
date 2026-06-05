@@ -33,6 +33,8 @@ public class RagProperties {
     private Embedding embedding = new Embedding();
     /** 路由和回答模式判断参数。 */
     private Routing routing = new Routing();
+    /** 模型工具调用参数。 */
+    private Tools tools = new Tools();
 
     @Data
     /** 检索参数。 */
@@ -121,5 +123,42 @@ public class RagProperties {
         private double chatOverrideMinScore = 0.72;
         /** 路由模型对 CHAT 的强置信阈值，高于该值时更倾向保持闲聊。 */
         private double strongChatConfidence = 0.95;
+    }
+
+    @Data
+    /** 模型工具调用参数。 */
+    public static class Tools {
+        /** 是否启用模型自主工具调用。 */
+        private boolean enabled = true;
+        /** 单次对话最多让模型做几轮工具决策。 */
+        private int maxRounds = 4;
+        /** 单次对话最多执行几个工具。 */
+        private int maxCalls = 6;
+        /** 工具调用链总超时时间，单位毫秒。 */
+        private int totalTimeoutMs = 30000;
+        /** 时间工具参数。 */
+        private Time time = new Time();
+        /** 联网搜索工具参数。 */
+        private WebSearch webSearch = new WebSearch();
+
+        @Data
+        public static class Time {
+            /** 默认时区。 */
+            private String defaultZone = "Asia/Shanghai";
+        }
+
+        @Data
+        public static class WebSearch {
+            /** 默认搜索结果数量。 */
+            private int maxResults = 5;
+            /** Tavily 搜索深度。 */
+            private String searchDepth = "basic";
+            /** 搜索结果最低分。 */
+            private double minScore = 0.5;
+            /** 新闻类搜索默认时间范围。 */
+            private String timeRange = "week";
+            /** 搜索请求超时，单位毫秒。 */
+            private int timeoutMs = 5000;
+        }
     }
 }

@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
-public class PluginToggleRequest {
+public class ToolToggleRequest {
     @NotNull
     private Boolean enabled;
 }

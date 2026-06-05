@@ -14,7 +14,7 @@
 --   4.  chat_messages      消息（→ chat_sessions）
 --   4.1 message_feedback   消息点赞/点踩（→ chat_messages, users）
 --   5.  skill_states       Skill 状态机（→ chat_sessions）
---   6.  plugins_config     插件配置（无外键）
+--   6.  tools_config       Tool 配置（无外键）
 -- =====================================================================
 
 CREATE DATABASE IF NOT EXISTS `myrag`
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `password`   VARCHAR(100) NOT NULL                                      COMMENT '密码（BCrypt 加密）',
     `nickname`   VARCHAR(50)           DEFAULT NULL                         COMMENT '昵称',
     `avatar`     VARCHAR(255)          DEFAULT NULL                         COMMENT '头像URL',
-    `current_location` VARCHAR(255)    DEFAULT NULL                         COMMENT '当前所在位置（天气插件默认位置，如城市/区县/经纬度）',
+    `current_location` VARCHAR(255)    DEFAULT NULL                         COMMENT '当前所在位置（天气工具默认位置，如城市/区县/经纬度）',
     `role`       VARCHAR(20)  NOT NULL DEFAULT 'USER'                       COMMENT '角色：USER / ADMIN',
     `status`     VARCHAR(20)  NOT NULL DEFAULT 'active'                     COMMENT '状态：active / locked / disabled',
     `created_at` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP            COMMENT '注册时间',
@@ -61,7 +61,7 @@ SET @users_current_location_exists := (
 );
 SET @users_current_location_ddl := IF(
     @users_current_location_exists = 0,
-    'ALTER TABLE `users` ADD COLUMN `current_location` VARCHAR(255) DEFAULT NULL COMMENT ''当前所在位置（天气插件默认位置，如城市/区县/经纬度）'' AFTER `avatar`',
+    'ALTER TABLE `users` ADD COLUMN `current_location` VARCHAR(255) DEFAULT NULL COMMENT ''当前所在位置（天气工具默认位置，如城市/区县/经纬度）'' AFTER `avatar`',
     'SELECT 1'
 );
 PREPARE users_current_location_stmt FROM @users_current_location_ddl;
@@ -159,12 +159,12 @@ CREATE TABLE IF NOT EXISTS `chat_messages` (
     `content`          TEXT         NOT NULL                                COMMENT '消息内容',
     `context`          TEXT                  DEFAULT NULL                   COMMENT '检索到的上下文（JSON 数组）',
     `source_documents` TEXT                  DEFAULT NULL                   COMMENT '来源文档列表（JSON 数组）',
-    `plugin_used`      VARCHAR(255)          DEFAULT NULL                   COMMENT '使用的插件名称',
+    `tool_used`        VARCHAR(255)          DEFAULT NULL                   COMMENT '使用的工具名称',
     `skill_used`       VARCHAR(255)          DEFAULT NULL                   COMMENT '使用的 Skill 名称',
     `tokens_used`      INT          NOT NULL DEFAULT 0                      COMMENT '消耗 token 数',
     `response_time`    INT          NOT NULL DEFAULT 0                      COMMENT '响应时间（毫秒）',
     `confidence`       DOUBLE                DEFAULT NULL                   COMMENT '检索 topScore，对应 ChatResponse.confidence；前端低置信提示用',
-    `answer_mode`      VARCHAR(40)           DEFAULT NULL                   COMMENT '回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / WEB_SEARCH / REALTIME_UNAVAILABLE',
+    `answer_mode`      VARCHAR(40)           DEFAULT NULL                   COMMENT '回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / TOOL_CALLING / REALTIME_UNAVAILABLE',
     `created_at`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP      COMMENT '创建时间',
     `deleted`          TINYINT      NOT NULL DEFAULT 0                      COMMENT '逻辑删除：0=未删, 1=已删',
     PRIMARY KEY (`id`),
@@ -185,7 +185,7 @@ SET @chat_messages_answer_mode_exists := (
 );
 SET @chat_messages_answer_mode_ddl := IF(
     @chat_messages_answer_mode_exists = 0,
-    'ALTER TABLE `chat_messages` ADD COLUMN `answer_mode` VARCHAR(40) DEFAULT NULL COMMENT ''回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / WEB_SEARCH / REALTIME_UNAVAILABLE'' AFTER `confidence`',
+    'ALTER TABLE `chat_messages` ADD COLUMN `answer_mode` VARCHAR(40) DEFAULT NULL COMMENT ''回答模式：CHAT / RAG_ANSWER / NO_KB_HIT / TOOL_CALLING / REALTIME_UNAVAILABLE'' AFTER `confidence`',
     'SELECT 1'
 );
 PREPARE chat_messages_answer_mode_stmt FROM @chat_messages_answer_mode_ddl;
@@ -242,27 +242,24 @@ CREATE TABLE IF NOT EXISTS `skill_states` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Skill 状态表';
 
 -- ---------------------------------------------------------------------
--- 6. plugins_config 插件配置表
---    - 全局配置（不区分用户），仅 ADMIN 可写
+-- 6. tools_config Tool 配置表
+--    - 全局启停配置（不区分用户），仅 ADMIN 可写
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `plugins_config` (
+CREATE TABLE IF NOT EXISTS `tools_config` (
     `id`           BIGINT       NOT NULL AUTO_INCREMENT                     COMMENT '配置ID',
-    `plugin_name`  VARCHAR(100) NOT NULL                                    COMMENT '插件名称（唯一）',
+    `tool_name`    VARCHAR(100) NOT NULL                                    COMMENT 'Tool 名称（唯一）',
+    `display_name` VARCHAR(100)          DEFAULT NULL                       COMMENT 'Tool 展示名称',
+    `description`  VARCHAR(500)          DEFAULT NULL                       COMMENT 'Tool 描述',
     `enabled`      TINYINT      NOT NULL DEFAULT 1                          COMMENT '是否启用：0=禁用, 1=启用',
-    `config_json`  TEXT                  DEFAULT NULL                       COMMENT '插件参数（JSON）',
-    `description`  VARCHAR(500)          DEFAULT NULL                       COMMENT '插件描述',
-    `hook_type`    VARCHAR(20)  NOT NULL DEFAULT 'both'                     COMMENT '钩子类型：before / after / both',
-    `priority`     INT          NOT NULL DEFAULT 0                          COMMENT '优先级（越大越先执行）',
     `created_at`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP          COMMENT '创建时间',
     `updated_at`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
                                 ON UPDATE CURRENT_TIMESTAMP                 COMMENT '更新时间',
     `deleted`      TINYINT      NOT NULL DEFAULT 0                          COMMENT '逻辑删除：0=未删, 1=已删',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_plugin_name` (`plugin_name`),
+    UNIQUE KEY `uk_tool_name` (`tool_name`),
     KEY `idx_enabled`  (`enabled`),
-    KEY `idx_priority` (`priority`),
     KEY `idx_deleted`  (`deleted`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='插件配置表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Tool 配置表';
 
 -- =====================================================================
 -- 初始化数据
@@ -282,12 +279,17 @@ SELECT 'admin',
        'active'
 WHERE NOT EXISTS (SELECT 1 FROM `users` WHERE `username` = 'admin');
 
--- 默认搜索插件配置。Tavily API Key 不写入数据库，必须通过 TAVILY_API_KEY 环境变量提供。
-INSERT INTO `plugins_config` (`plugin_name`, `enabled`, `config_json`, `description`, `hook_type`, `priority`)
-SELECT 'WebSearchPlugin',
-       1,
-       '{"maxResults":5,"searchDepth":"basic","minScore":0.5,"timeRange":"week","timeoutMs":5000}',
-       '使用 Tavily Search API 查询实时网页信息',
-       'before',
-       100
-WHERE NOT EXISTS (SELECT 1 FROM `plugins_config` WHERE `plugin_name` = 'WebSearchPlugin');
+-- 默认 Tool 配置。Tavily API Key 不写入数据库，必须通过 TAVILY_API_KEY 环境变量提供。
+INSERT INTO `tools_config` (`tool_name`, `display_name`, `description`, `enabled`)
+SELECT 'current_time',
+       '当前时间',
+       '获取当前日期、时间、星期和 ISO 时间戳',
+       1
+WHERE NOT EXISTS (SELECT 1 FROM `tools_config` WHERE `tool_name` = 'current_time');
+
+INSERT INTO `tools_config` (`tool_name`, `display_name`, `description`, `enabled`)
+SELECT 'web_search',
+       '联网搜索',
+       '搜索公开网页，用于实时价格、行情、新闻、汇率、天气、政策等公开信息',
+       1
+WHERE NOT EXISTS (SELECT 1 FROM `tools_config` WHERE `tool_name` = 'web_search');

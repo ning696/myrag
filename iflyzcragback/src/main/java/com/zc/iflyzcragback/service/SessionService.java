@@ -1,13 +1,17 @@
 package com.zc.iflyzcragback.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zc.iflyzcragback.common.BizException;
+import com.zc.iflyzcragback.dto.CitationVO;
 import com.zc.iflyzcragback.dto.MessageVO;
 import com.zc.iflyzcragback.dto.SessionVO;
 import com.zc.iflyzcragback.entity.ChatMessageEntity;
 import com.zc.iflyzcragback.entity.ChatSessionEntity;
 import com.zc.iflyzcragback.mapper.ChatMessageMapper;
 import com.zc.iflyzcragback.mapper.ChatSessionMapper;
+import com.zc.iflyzcragback.service.rag.tool.WebSearchSource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -29,6 +33,7 @@ public class SessionService {
 
     private final ChatSessionMapper sessionMapper;
     private final ChatMessageMapper messageMapper;
+    private final ObjectMapper objectMapper;
 
     /**
      * 创建新会话。
@@ -113,9 +118,38 @@ public class SessionService {
                 .id(entity.getId())
                 .role(entity.getRole())
                 .content(entity.getContent())
+                .citations(parseSourceDocuments(entity.getSourceDocuments()))
                 .confidence(entity.getConfidence())
                 .answerMode(entity.getAnswerMode())
                 .createdAt(entity.getCreatedAt())
                 .build();
+    }
+
+    private List<CitationVO> parseSourceDocuments(String sourceDocuments) {
+        if (sourceDocuments == null || sourceDocuments.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<WebSearchSource> sources = objectMapper.readValue(
+                    sourceDocuments, new TypeReference<List<WebSearchSource>>() {});
+            List<CitationVO> citations = new java.util.ArrayList<>();
+            for (int i = 0; i < sources.size(); i++) {
+                WebSearchSource source = sources.get(i);
+                CitationVO citation = new CitationVO();
+                citation.setN(i + 1);
+                citation.setSourceType("web");
+                citation.setTitle(source.getTitle());
+                citation.setDocumentName(source.getTitle());
+                citation.setUrl(source.getUrl());
+                citation.setContent(source.getContent());
+                citation.setScore(source.getScore());
+                citation.setPublishedDate(source.getPublishedDate());
+                citations.add(citation);
+            }
+            return citations;
+        } catch (Exception e) {
+            log.debug("Failed to parse message source documents for citations", e);
+            return List.of();
+        }
     }
 }

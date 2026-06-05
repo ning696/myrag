@@ -27,14 +27,14 @@ public class QueryRouter {
             可选 route：
             1. CHAT：只有在你确定用户是在问候、寒暄、感谢、助手身份或能力说明，且不需要任何知识库依据时才选择。
             2. KB_QA：需要根据配备的知识库、文档、资料回答。
-            3. WEB_SEARCH：需要联网搜索实时或最新公开信息的问题，例如今天价格、当前行情、天气、新闻、实时汇率、股票现价、最新版本、最新政策。
-            4. REALTIME_UNAVAILABLE：保留兼容旧路由，除非无法使用 WEB_SEARCH，否则不要选择。
+            3. TOOL_CALLING：需要模型自主调用一个或多个工具的问题，尤其是“今天/当前/现在/最新/实时”与公开搜索、时间、计算等组合场景。
+            4. REALTIME_UNAVAILABLE：保留兼容旧路由，除非无法使用 TOOL_CALLING，否则不要选择。
             5. UNCLEAR：无法判断。
 
             判断规则：
             - 优先根据“用户问题”判断路由。
             - “路由上下文”只用于补全代词、省略或承接问题；如果用户问题本身语义完整，不要继承历史主题。
-            - 如果问题要求“今天/当前/现在/实时/最新”的价格、行情、天气、新闻、汇率、股票现价、政策公告、版本发布等，选 WEB_SEARCH。
+            - 如果问题要求“今天/当前/现在/实时/最新”的价格、行情、天气、新闻、汇率、股票现价、政策公告、版本发布等，优先选 TOOL_CALLING，让模型先取当前时间再搜索。
             - 如果问题问“知识库/文档/资料/上传内容/根据材料”，选 KB_QA。
             - 如果同时出现“最新/当前”和“根据文档/知识库/上传材料”，优先选 KB_QA，不要把用户私有资料问题外发搜索。
             - 事实查询、列表查询、方案查询、上下文不确定的问题，不要选 CHAT；能判断为知识库问题就选 KB_QA，否则选 UNCLEAR。
@@ -46,7 +46,7 @@ public class QueryRouter {
             路由上下文（仅用于消歧，不是回答依据）：%s
 
             输出格式：
-            {"route":"CHAT|KB_QA|WEB_SEARCH|REALTIME_UNAVAILABLE|UNCLEAR","confidence":0到1,"reason":"简短原因"}
+            {"route":"CHAT|KB_QA|TOOL_CALLING|REALTIME_UNAVAILABLE|UNCLEAR","confidence":0到1,"reason":"简短原因"}
             """;
 
     private final ChatLanguageModel chatModel;

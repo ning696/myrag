@@ -177,7 +177,7 @@ public class RagRetriever {
 rag.retrieval.min-score=0.65
 rag.retrieval.top-k=10
 rag.retrieval.rerank-top-k=5
-rag.retrieval.fallback-on-empty=true   # 检索为空时是否调用 Web 搜索插件兜底
+rag.retrieval.fallback-on-empty=true   # 检索为空时是否调用 Web 搜索工具兜底
 ```
 
 ### 3.2 混合检索（Hybrid Retrieval）

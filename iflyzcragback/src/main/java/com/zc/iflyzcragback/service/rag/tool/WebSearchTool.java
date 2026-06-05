@@ -1,8 +1,10 @@
-package com.zc.iflyzcragback.plugin;
+package com.zc.iflyzcragback.service.rag.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.zc.iflyzcragback.service.rag.QueryRoute;
+import com.zc.iflyzcragback.config.RagProperties;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,69 +23,67 @@ import java.util.Map;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-/**
- * Tavily 联网搜索插件。
- */
-public class WebSearchPlugin implements Plugin {
+public class WebSearchTool implements ManagedTool {
 
-    private static final String SOURCES_KEY = "webSources";
-    private static final String TAVILY_SEARCH_URL = "https://api.tavily.com/search";
+    public static final String NAME = "web_search";
+    public static final String SOURCES_KEY = "sources";
 
     private final ObjectMapper objectMapper;
+    private final RagProperties props;
 
     @Value("${search.api-key:}")
     private String tavilyApiKey;
 
+    @Value("${search.endpoint:https://api.tavily.com/search}")
+    private String searchEndpoint;
+
     @Override
-    public String getName() {
-        return "WebSearchPlugin";
+    public String name() {
+        return NAME;
     }
 
     @Override
-    public String getDescription() {
-        return "使用 Tavily Search API 查询实时网页信息";
+    public String displayName() {
+        return "联网搜索";
     }
 
     @Override
-    public PluginResult beforeRag(String query, PluginContext context) {
-        if (context.getRoute() != QueryRoute.WEB_SEARCH) {
-            return PluginResult.empty();
-        }
+    public String description() {
+        return "搜索公开网页，用于实时价格、行情、新闻、汇率、天气、政策等公开信息。";
+    }
+
+    @Override
+    public boolean available() {
+        return tavilyApiKey != null && !tavilyApiKey.isBlank();
+    }
+
+    @Tool(name = NAME, value = "搜索公开网页，用于查询实时、最新、新闻、价格、政策、汇率、行情等公开信息。只接收一个必填参数 query。")
+    public String webSearch(@P("搜索关键词，应包含必要日期、地点、对象和单位。") String query) {
         if (tavilyApiKey == null || tavilyApiKey.isBlank()) {
-            log.warn("TAVILY_API_KEY 未配置，跳过联网搜索。");
-            return PluginResult.empty();
+            return "{\"success\":false,\"message\":\"联网搜索未配置 Tavily API Key\"}";
         }
-
+        if (query == null || query.isBlank()) {
+            return "{\"success\":false,\"message\":\"web_search 缺少 query 参数\"}";
+        }
         try {
-            SearchOptions options = options(context.getConfig(), query);
+            SearchOptions options = options(query);
             long start = System.currentTimeMillis();
             List<WebSearchSource> sources = search(query, options);
             long latency = System.currentTimeMillis() - start;
             double topScore = sources.isEmpty() ? 0.0 : sources.get(0).getScore();
-            log.info("Web search finished | query=\"{}\" | hits={} | topScore={} | latency={}ms",
+            log.info("Web search tool finished | query=\"{}\" | hits={} | topScore={} | latency={}ms",
                     query, sources.size(), topScore, latency);
 
-            if (sources.isEmpty()) {
-                return PluginResult.empty();
-            }
-            return PluginResult.builder()
-                    .hasAnswer(true)
-                    .pluginName(getName())
-                    .metadata(Map.of(SOURCES_KEY, sources))
-                    .build();
+            return objectMapper.writeValueAsString(Map.of(
+                    "success", true,
+                    "query", query,
+                    SOURCES_KEY, sources,
+                    "message", sources.isEmpty() ? "没有找到满足分数阈值的联网搜索结果" : "联网搜索完成"
+            ));
         } catch (Exception e) {
-            log.warn("Tavily 搜索失败，降级为联网不可用。query=\"{}\"", query, e);
-            return PluginResult.empty();
+            log.warn("Web search tool failed. query={}", query, e);
+            return "{\"success\":false,\"message\":\"联网搜索失败: " + escape(e.getMessage()) + "\"}";
         }
-    }
-
-    @Override
-    public PluginResult afterRag(String answer, String retrievedContext, PluginContext context) {
-        return PluginResult.empty();
-    }
-
-    public static String sourcesKey() {
-        return SOURCES_KEY;
     }
 
     private List<WebSearchSource> search(String query, SearchOptions options) throws Exception {
@@ -103,7 +103,7 @@ public class WebSearchPlugin implements Plugin {
                 .connectTimeout(Duration.ofMillis(options.timeoutMs()))
                 .build();
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(TAVILY_SEARCH_URL))
+                .uri(URI.create(searchEndpoint))
                 .timeout(Duration.ofMillis(options.timeoutMs()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + tavilyApiKey)
@@ -140,54 +140,25 @@ public class WebSearchPlugin implements Plugin {
         return sources;
     }
 
-    private SearchOptions options(Map<String, Object> config, String query) {
-        int maxResults = intValue(config.get("maxResults"), 5);
-        String searchDepth = stringValue(config.get("searchDepth"), "basic");
-        double minScore = doubleValue(config.get("minScore"), 0.5);
-        String timeRange = stringValue(config.get("timeRange"), "week");
-        int timeoutMs = intValue(config.get("timeoutMs"), 5000);
+    private SearchOptions options(String query) {
+        RagProperties.Tools.WebSearch webSearch = props.getTools().getWebSearch();
         boolean newsLike = query.contains("新闻") || query.contains("最新消息")
                 || query.contains("发布") || query.contains("公告");
         return new SearchOptions(
-                Math.max(1, Math.min(maxResults, 20)),
-                searchDepth,
-                Math.max(0.0, minScore),
-                timeRange,
-                Math.max(1000, timeoutMs),
+                Math.max(1, Math.min(webSearch.getMaxResults(), 20)),
+                webSearch.getSearchDepth(),
+                Math.max(0.0, webSearch.getMinScore()),
+                webSearch.getTimeRange(),
+                Math.max(1000, webSearch.getTimeoutMs()),
                 newsLike
         );
     }
 
-    private int intValue(Object value, int defaultValue) {
-        if (value instanceof Number n) {
-            return n.intValue();
+    private String escape(String value) {
+        if (value == null) {
+            return "";
         }
-        if (value instanceof String s) {
-            try {
-                return Integer.parseInt(s);
-            } catch (NumberFormatException ignored) {
-                return defaultValue;
-            }
-        }
-        return defaultValue;
-    }
-
-    private double doubleValue(Object value, double defaultValue) {
-        if (value instanceof Number n) {
-            return n.doubleValue();
-        }
-        if (value instanceof String s) {
-            try {
-                return Double.parseDouble(s);
-            } catch (NumberFormatException ignored) {
-                return defaultValue;
-            }
-        }
-        return defaultValue;
-    }
-
-    private String stringValue(Object value, String defaultValue) {
-        return value == null || value.toString().isBlank() ? defaultValue : value.toString();
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private record SearchOptions(int maxResults, String searchDepth, double minScore,

@@ -6,10 +6,7 @@ import com.zc.iflyzcragback.config.RagProperties;
 import com.zc.iflyzcragback.dto.CitationVO;
 import com.zc.iflyzcragback.entity.ChatMessageEntity;
 import com.zc.iflyzcragback.mapper.ChatMessageMapper;
-import com.zc.iflyzcragback.plugin.PluginManager;
-import com.zc.iflyzcragback.plugin.PluginResult;
-import com.zc.iflyzcragback.plugin.WebSearchPlugin;
-import com.zc.iflyzcragback.plugin.WebSearchSource;
+import com.zc.iflyzcragback.service.rag.tool.RealtimeToolCallingService;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
@@ -45,7 +42,7 @@ public class RagOrchestrator {
     private final QueryRewriter queryRewriter;
     private final HybridRetriever hybridRetriever;
     private final PromptBuilder promptBuilder;
-    private final PluginManager pluginManager;
+    private final RealtimeToolCallingService realtimeToolCallingService;
     private final StreamingChatLanguageModel chatModel;
     private final ChatMessageMapper messageMapper;
     private final RagProperties props;
@@ -67,22 +64,23 @@ public class RagOrchestrator {
                 // 2. 先判断问题类型，决定走普通聊天、知识库问答，还是提示实时能力不可用。
                 QueryRouter.RouteDecision decision = queryRouter.route(query, history);
 
-                if (decision.route() == QueryRoute.WEB_SEARCH) {
-                    PluginResult pluginResult = pluginManager.executeBefore(
-                            query, sessionId, userId, decision.route(), startTime);
-                    List<WebSearchSource> webSources = extractWebSources(pluginResult);
-                    if (!webSources.isEmpty()) {
-                        List<ChatMessage> messages = promptBuilder.buildWebSearchMessages(query, webSources, history);
-                        streamAndSave(emitter, sessionId, query, messages, AnswerMode.WEB_SEARCH,
-                                topWebScore(webSources), decision.reason(), buildWebCitations(webSources),
-                                pluginResult.getPluginName(), startTime);
+                if (shouldUseToolCalling(decision.route())) {
+                    RealtimeToolCallingService.ToolCallingResult toolResult = realtimeToolCallingService.answer(query);
+                    if (toolResult.available()) {
+                        streamDirectAndSave(emitter, sessionId, query, toolResult.answer(), AnswerMode.TOOL_CALLING,
+                                toolResult.confidence(), decision.reason(), toolResult.citations(),
+                                String.join(",", toolResult.usedTools()), startTime,
+                                toolResult.usedTools(), toolResult.sourceDocuments());
                         return;
                     }
-
-                    List<ChatMessage> messages = promptBuilder.buildRealtimeUnavailableMessages(query, history);
-                    streamAndSave(emitter, sessionId, query, messages, AnswerMode.REALTIME_UNAVAILABLE,
-                            null, decision.reason(), null, null, startTime);
-                    return;
+                    log.info("Tool calling unavailable | route={} | reason={}",
+                            decision.route(), toolResult.unavailableReason());
+                    if (decision.route() == QueryRoute.TOOL_CALLING) {
+                        List<ChatMessage> messages = promptBuilder.buildRealtimeUnavailableMessages(query, history);
+                        streamAndSave(emitter, sessionId, query, messages, AnswerMode.REALTIME_UNAVAILABLE,
+                                null, decision.reason(), null, null, startTime);
+                        return;
+                    }
                 }
 
                 if (decision.route() == QueryRoute.REALTIME_UNAVAILABLE) {
@@ -130,7 +128,7 @@ public class RagOrchestrator {
                 log.error("RAG 对话失败", e);
                 try {
                     emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
-                    emitter.completeWithError(e);
+                    emitter.complete();
                 } catch (IOException ex) {
                     log.error("SSE 异常推送失败", ex);
                 }
@@ -138,6 +136,11 @@ public class RagOrchestrator {
         }).start();
 
         return emitter;
+    }
+
+    private boolean shouldUseToolCalling(QueryRoute route) {
+        return props.getTools().isEnabled()
+                && route == QueryRoute.TOOL_CALLING;
     }
 
     /**
@@ -167,10 +170,9 @@ public class RagOrchestrator {
         if (decision.route() == QueryRoute.REALTIME_UNAVAILABLE) {
             return AnswerMode.REALTIME_UNAVAILABLE;
         }
-        if (decision.route() == QueryRoute.WEB_SEARCH) {
-            return AnswerMode.WEB_SEARCH;
+        if (decision.route() == QueryRoute.TOOL_CALLING) {
+            return AnswerMode.TOOL_CALLING;
         }
-
         List<RetrievedChunk> chunks = retrieved == null ? List.of() : retrieved.chunks();
         double topVectorScore = retrieved == null ? 0.0 : retrieved.topVectorScore();
 
@@ -195,8 +197,24 @@ public class RagOrchestrator {
                                Double confidence,
                                String routeReason,
                                List<CitationVO> citations,
-                               String pluginUsed,
+                               String toolUsed,
                                long startTime) {
+        streamAndSave(emitter, sessionId, query, messages, answerMode, confidence, routeReason,
+                citations, toolUsed, startTime, List.of(), null);
+    }
+
+    private void streamAndSave(SseEmitter emitter,
+                               String sessionId,
+                               String query,
+                               List<ChatMessage> messages,
+                               AnswerMode answerMode,
+                               Double confidence,
+                               String routeReason,
+                               List<CitationVO> citations,
+                               String toolUsed,
+                               long startTime,
+                               List<String> usedTools,
+                               String sourceDocuments) {
         StringBuilder answerBuilder = new StringBuilder();
         AtomicBoolean emitterActive = new AtomicBoolean(true);
         emitter.onCompletion(() -> emitterActive.set(false));
@@ -229,14 +247,17 @@ public class RagOrchestrator {
                                 objectMapper.writeValueAsString(citations)));
                     }
                     if (emitterActive.get()) {
-                        emitter.send(SseEmitter.event().name("done").data(donePayload(answerMode, confidence, routeReason)));
+                        emitter.send(SseEmitter.event().name("done").data(
+                                donePayload(answerMode, confidence, routeReason, usedTools)));
                         emitter.complete();
                     }
-                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence, answerMode, pluginUsed);
+                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence,
+                            answerMode, toolUsed, sourceDocuments);
                 } catch (IOException | IllegalStateException e) {
                     emitterActive.set(false);
                     log.warn("SSE client disconnected before completion, sessionId={}", sessionId);
-                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence, answerMode, pluginUsed);
+                    saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence,
+                            answerMode, toolUsed, sourceDocuments);
                 }
             }
 
@@ -248,7 +269,7 @@ public class RagOrchestrator {
                 }
                 try {
                     emitter.send(SseEmitter.event().name("error").data(error.getMessage()));
-                    emitter.completeWithError(error);
+                    emitter.complete();
                 } catch (IOException | IllegalStateException e) {
                     emitterActive.set(false);
                     log.warn("SSE client disconnected before error event, sessionId={}", sessionId);
@@ -257,14 +278,46 @@ public class RagOrchestrator {
         });
     }
 
+    private void streamDirectAndSave(SseEmitter emitter,
+                                     String sessionId,
+                                     String query,
+                                     String answer,
+                                     AnswerMode answerMode,
+                                     Double confidence,
+                                     String routeReason,
+                                     List<CitationVO> citations,
+                                     String toolUsed,
+                                     long startTime,
+                                     List<String> usedTools,
+                                     String sourceDocuments) throws IOException {
+        emitter.send(SseEmitter.event().name("token").data(answer));
+        if (citations != null && !citations.isEmpty()) {
+            emitter.send(SseEmitter.event().name("citations").data(
+                    objectMapper.writeValueAsString(citations)));
+        }
+        emitter.send(SseEmitter.event().name("done").data(
+                donePayload(answerMode, confidence, routeReason,
+                        usedTools == null ? List.of() : usedTools)));
+        emitter.complete();
+        saveMessage(sessionId, query, answer, startTime, confidence, answerMode, toolUsed, sourceDocuments);
+    }
+
     /**
      * 构造 SSE done 事件载荷，告诉前端本次回答模式、置信度和路由原因。
      */
     private String donePayload(AnswerMode answerMode, Double confidence, String routeReason) throws IOException {
+        return donePayload(answerMode, confidence, routeReason, List.of());
+    }
+
+    private String donePayload(AnswerMode answerMode,
+                               Double confidence,
+                               String routeReason,
+                               List<String> usedTools) throws IOException {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("answerMode", answerMode.name());
         payload.put("confidence", confidence);
         payload.put("routeReason", routeReason == null ? "" : routeReason);
+        payload.put("usedTools", usedTools == null ? List.of() : usedTools);
         return objectMapper.writeValueAsString(payload);
     }
 
@@ -289,51 +342,22 @@ public class RagOrchestrator {
         return citations;
     }
 
-    @SuppressWarnings("unchecked")
-    private List<WebSearchSource> extractWebSources(PluginResult result) {
-        if (result == null || result.getMetadata() == null) {
-            return List.of();
-        }
-        Object value = result.getMetadata().get(WebSearchPlugin.sourcesKey());
-        if (value instanceof List<?> list) {
-            return list.stream()
-                    .filter(WebSearchSource.class::isInstance)
-                    .map(WebSearchSource.class::cast)
-                    .toList();
-        }
-        return List.of();
-    }
-
-    private Double topWebScore(List<WebSearchSource> sources) {
-        return sources.stream()
-                .map(WebSearchSource::getScore)
-                .filter(score -> score != null)
-                .max(Double::compareTo)
-                .orElse(null);
-    }
-
-    private List<CitationVO> buildWebCitations(List<WebSearchSource> sources) {
-        List<CitationVO> citations = new ArrayList<>();
-        for (WebSearchSource source : sources) {
-            CitationVO citation = new CitationVO();
-            citation.setN(source.getIndex());
-            citation.setSourceType("web");
-            citation.setTitle(source.getTitle());
-            citation.setDocumentName(source.getTitle());
-            citation.setUrl(source.getUrl());
-            citation.setContent(source.getContent());
-            citation.setScore(source.getScore());
-            citation.setPublishedDate(source.getPublishedDate());
-            citations.add(citation);
-        }
-        return citations;
-    }
-
     /**
      * 保存用户问题和助手回答，供会话历史和后续上下文使用。
      */
     private void saveMessage(String sessionId, String query, String answer,
-                             long startTime, Double confidence, AnswerMode answerMode, String pluginUsed) {
+                             long startTime, Double confidence, AnswerMode answerMode, String toolUsed) {
+        saveMessage(sessionId, query, answer, startTime, confidence, answerMode, toolUsed, null);
+    }
+
+    private void saveMessage(String sessionId,
+                             String query,
+                             String answer,
+                             long startTime,
+                             Double confidence,
+                             AnswerMode answerMode,
+                             String toolUsed,
+                             String sourceDocuments) {
         long elapsed = System.currentTimeMillis() - startTime;
 
         ChatMessageEntity userMsg = new ChatMessageEntity();
@@ -348,7 +372,8 @@ public class RagOrchestrator {
         aiMsg.setContent(answer);
         aiMsg.setConfidence(confidence);
         aiMsg.setAnswerMode(answerMode.name());
-        aiMsg.setPluginUsed(pluginUsed);
+        aiMsg.setToolUsed(toolUsed);
+        aiMsg.setSourceDocuments(sourceDocuments);
         aiMsg.setResponseTime((int) elapsed);
         messageMapper.insert(aiMsg);
 

@@ -33,8 +33,8 @@ public class ChatMessageEntity {
     private String context;
     /** 来源文档字段，预留给保存引用信息。 */
     private String sourceDocuments;
-    /** 使用的插件名称，预留给工具调用场景。 */
-    private String pluginUsed;
+    /** 使用的工具名称。 */
+    private String toolUsed;
     /** 使用的技能名称，预留给多技能系统。 */
     private String skillUsed;
     /** 本次消耗 token 数，预留统计成本。 */

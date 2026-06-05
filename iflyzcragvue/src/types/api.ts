@@ -66,7 +66,7 @@ export interface ChatMessage {
   content: string
   citations?: Citation[]
   confidence?: number
-  answerMode?: 'CHAT' | 'RAG_ANSWER' | 'NO_KB_HIT' | 'WEB_SEARCH' | 'REALTIME_UNAVAILABLE'
+  answerMode?: 'CHAT' | 'RAG_ANSWER' | 'NO_KB_HIT' | 'TOOL_CALLING' | 'REALTIME_UNAVAILABLE'
   routeReason?: string
   createdAt: string
 }
@@ -89,22 +89,14 @@ export interface ChatRequest {
   query: string
 }
 
-export interface PluginConfig {
-  pluginName: string
+export interface ToolConfig {
+  toolName: string
+  displayName: string
   description: string
   enabled: boolean
-  hookType: 'before' | 'after' | 'both'
-  priority: number
-  configJson: string
-  registered: boolean
+  available: boolean
 }
 
-export interface PluginToggleRequest {
+export interface ToolToggleRequest {
   enabled: boolean
-}
-
-export interface PluginConfigRequest {
-  configJson?: string
-  hookType?: 'before' | 'after' | 'both'
-  priority?: number
 }

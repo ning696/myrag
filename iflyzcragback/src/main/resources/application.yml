@@ -73,7 +73,7 @@ langchain4j:
       base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
       api-key: ${DEEPSEEK_API_KEY}
       model-name: ${LLM_MODEL}
-      timeout: 10s
+      timeout: 20s
       max-retries: 3
       log-requests: false
       log-responses: false
@@ -135,6 +135,19 @@ rag:
     timeout: 5000
   embedding:
     version: dashscope-v2-1536   # 索引时记录的 embedding 版本（切模型用）
+  tools:
+    enabled: true
+    max-rounds: 4
+    max-calls: 3
+    total-timeout-ms: 350000
+    time:
+      default-zone: Asia/Shanghai
+    web-search:
+      max-results: 5
+      search-depth: basic
+      min-score: 0.5
+      time-range: week
+      timeout-ms: 5000
 
 # ------------------ CORS ------------------
 cors:
@@ -167,8 +180,8 @@ mail:
   from: ${SMTP_FROM:}
   ssl-enable: true
 
-# 网络搜索 API（WebSearchPlugin 使用）
-# Tavily API Key 仅从 TAVILY_API_KEY 环境变量读取，不写入 plugins_config。
+# 网络搜索 API（web_search tool 使用）
+# Tavily API Key 仅从 TAVILY_API_KEY 环境变量读取，不写入 tools_config。
 search:
   provider: tavily
   api-key: ${TAVILY_API_KEY:}
