@@ -8,7 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -25,6 +27,7 @@ public class SkillRouter {
             判断规则：
             - 只有需要进入“多轮任务流程”的请求才选择 Skill；否则选择 NONE。
             - WeatherSkill 负责天气查询流程。用户询问天气、天气预报、是否下雨、冷热、风力等，即使缺少城市或日期，也应优先选择 WeatherSkill，让 Skill 继续追问缺失信息。
+            - 选择 WeatherSkill 时，尽量从用户输入中抽取 slots.city 和 slots.dateText。dateText 只填“今天/明天/后天”或 yyyy-MM-dd；没有明确日期则留空。
             - EmailSkill 负责真实发邮件流程。用户表达要发邮件、写邮件并发送、给某人发送通知等，应选择 EmailSkill，让 Skill 收集收件人、主题、内容并确认。
             - 如果用户明确要求根据知识库、文档、上传资料、代码、设计、实现、API 原理来回答，不要选择 Skill，应选择 NONE。
             - 普通闲聊、知识解释、公开新闻/价格/汇率/政策查询不要选择 Skill。
@@ -53,7 +56,7 @@ public class SkillRouter {
             用户输入：%s
 
             输出格式：
-            {"skillName":"EmailSkill|WeatherSkill|NONE","confidence":0到1,"reason":"简短原因"}
+            {"skillName":"EmailSkill|WeatherSkill|NONE","confidence":0到1,"reason":"简短原因","slots":{"city":"城市名或空","dateText":"今天|明天|后天|yyyy-MM-dd 或空"}}
             """;
 
     private final SkillService skillService;
@@ -72,13 +75,14 @@ public class SkillRouter {
             String skillName = root.path("skillName").asText("NONE");
             double confidence = root.path("confidence").asDouble(0.0);
             String reason = root.path("reason").asText("LLM 识别");
+            Map<String, String> slots = parseSlots(root.path("slots"));
             if (confidence < MIN_CONFIDENCE || "NONE".equalsIgnoreCase(skillName)) {
                 return Optional.empty();
             }
             return enabledSkills.stream()
                     .filter(skill -> skill.name().equals(skillName))
                     .findFirst()
-                    .map(skill -> new Decision(skill, reason));
+                    .map(skill -> new Decision(skill, reason, slots));
         } catch (Exception e) {
             log.warn("SkillRouter failed, continue normal RAG flow. input=\"{}\"", input, e);
             return Optional.empty();
@@ -107,6 +111,22 @@ public class SkillRouter {
         return trimmed.trim();
     }
 
-    public record Decision(Skill skill, String reason) {
+    private Map<String, String> parseSlots(JsonNode slotsNode) {
+        Map<String, String> slots = new LinkedHashMap<>();
+        if (slotsNode == null || !slotsNode.isObject()) {
+            return slots;
+        }
+        putIfPresent(slots, "city", slotsNode.path("city").asText(""));
+        putIfPresent(slots, "dateText", slotsNode.path("dateText").asText(""));
+        return slots;
+    }
+
+    private void putIfPresent(Map<String, String> slots, String key, String value) {
+        if (value != null && !value.trim().isEmpty()) {
+            slots.put(key, value.trim());
+        }
+    }
+
+    public record Decision(Skill skill, String reason, Map<String, String> slots) {
     }
 }

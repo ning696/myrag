@@ -14,6 +14,9 @@ public class WeatherSkill implements Skill {
     public static final String NAME = "WeatherSkill";
     static final String ASK_CITY = "ASK_CITY";
     static final String ASK_DATE = "ASK_DATE";
+    private static final String CITY = "city";
+    private static final String DATE = "date";
+    private static final String DATE_TEXT = "dateText";
 
     private final WeatherLookupService weatherLookupService;
 
@@ -43,6 +46,37 @@ public class WeatherSkill implements Skill {
     }
 
     @Override
+    public SkillResult start(String input, SkillContext context) {
+        Map<String, Object> state = context.mutableState();
+        String city = normalize(stringValue(state.get(CITY)));
+        String dateText = normalize(stringValue(state.get(DATE_TEXT)));
+
+        if (!dateText.isBlank()) {
+            try {
+                state.put(DATE, parseDate(dateText).toString());
+            } catch (BizException e) {
+                state.remove(DATE);
+                state.remove(DATE_TEXT);
+                return SkillResult.ask(e.getMessage(), ASK_DATE, state);
+            }
+        }
+
+        boolean hasCity = !city.isBlank();
+        boolean hasDate = state.get(DATE) != null;
+        if (hasCity && hasDate) {
+            return queryWeather(city, LocalDate.parse(String.valueOf(state.get(DATE))), state);
+        }
+        if (hasCity) {
+            return SkillResult.ask("请告诉我你想查询哪一天的天气？（今天/明天/后天，或 yyyy-MM-dd）",
+                    ASK_DATE, state);
+        }
+        if (hasDate) {
+            return SkillResult.ask("请告诉我你想查询哪个城市的天气？", ASK_CITY, state);
+        }
+        return start(context);
+    }
+
+    @Override
     public SkillResult handle(String input, SkillContext context) {
         return switch (context.getCurrentStep()) {
             case ASK_CITY -> handleCity(input, context);
@@ -57,7 +91,11 @@ public class WeatherSkill implements Skill {
             return SkillResult.ask("城市不能为空，请告诉我你想查询哪个城市。", ASK_CITY, context.mutableState());
         }
         Map<String, Object> state = context.mutableState();
-        state.put("city", city);
+        state.put(CITY, city);
+        Object existingDate = state.get(DATE);
+        if (existingDate != null) {
+            return queryWeather(city, LocalDate.parse(String.valueOf(existingDate)), state);
+        }
         return SkillResult.ask("请告诉我你想查询哪一天的天气？（今天/明天/后天，或 yyyy-MM-dd）",
                 ASK_DATE, state);
     }
@@ -70,8 +108,15 @@ public class WeatherSkill implements Skill {
             return SkillResult.ask(e.getMessage(), ASK_DATE, context.mutableState());
         }
         Map<String, Object> state = context.mutableState();
-        state.put("date", date.toString());
-        String city = String.valueOf(state.get("city"));
+        state.put(DATE, date.toString());
+        String city = normalize(stringValue(state.get(CITY)));
+        if (city.isBlank()) {
+            return SkillResult.ask("请告诉我你想查询哪个城市的天气？", ASK_CITY, state);
+        }
+        return queryWeather(city, date, state);
+    }
+
+    private SkillResult queryWeather(String city, LocalDate date, Map<String, Object> state) {
         try {
             return SkillResult.done(weatherLookupService.query(city, date), state);
         } catch (BizException e) {
@@ -101,5 +146,9 @@ public class WeatherSkill implements Skill {
 
     private String normalize(String input) {
         return input == null ? "" : input.trim();
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 }

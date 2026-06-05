@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -38,18 +39,23 @@ public class SkillOrchestrator {
         }
 
         return router.route(input)
-                .map(decision -> startSkill(decision.skill(), sessionId, userId, decision.reason()));
+                .map(decision -> startSkill(decision.skill(), sessionId, input, userId, decision.reason(), decision.slots()));
     }
 
-    private SkillTurnResult startSkill(Skill skill, String sessionId, Long userId, String reason) {
+    private SkillTurnResult startSkill(Skill skill, String sessionId, String input, Long userId,
+                                       String reason, Map<String, String> slots) {
+        Map<String, Object> stateData = new LinkedHashMap<>();
+        if (slots != null) {
+            stateData.putAll(slots);
+        }
         SkillContext context = SkillContext.builder()
                 .userId(userId)
                 .sessionId(sessionId)
                 .skillName(skill.name())
                 .currentStep("INIT")
-                .stateData(new LinkedHashMap<>())
+                .stateData(stateData)
                 .build();
-        SkillResult result = skill.start(context);
+        SkillResult result = skill.start(input, context);
         persistOrClear(context, result);
         log.info("Skill started | userId={} | sessionId={} | skill={} | nextStep={} | reason={}",
                 userId, sessionId, skill.name(), result.getNextStep(), reason);

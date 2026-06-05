@@ -11,6 +11,10 @@ public interface Skill {
 
     SkillResult start(SkillContext context);
 
+    default SkillResult start(String input, SkillContext context) {
+        return start(context);
+    }
+
     SkillResult handle(String input, SkillContext context);
 
     default boolean available() {
