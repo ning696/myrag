@@ -2,7 +2,6 @@ package com.zc.iflyzcragback.service.rag.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.zc.iflyzcragback.config.RagProperties;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
@@ -29,13 +28,10 @@ public class WebSearchTool implements ManagedTool {
     public static final String SOURCES_KEY = "sources";
 
     private final ObjectMapper objectMapper;
-    private final RagProperties props;
+    private final ToolParameterService parameterService;
 
     @Value("${search.api-key:}")
     private String tavilyApiKey;
-
-    @Value("${search.endpoint:https://api.tavily.com/search}")
-    private String searchEndpoint;
 
     @Override
     public String name() {
@@ -54,11 +50,13 @@ public class WebSearchTool implements ManagedTool {
 
     @Override
     public boolean available() {
+        String tavilyApiKey = tavilyApiKey();
         return tavilyApiKey != null && !tavilyApiKey.isBlank();
     }
 
     @Tool(name = NAME, value = "搜索公开网页，用于查询实时、最新、新闻、价格、政策、汇率、行情等公开信息。只接收一个必填参数 query。")
     public String webSearch(@P("搜索关键词，应包含必要日期、地点、对象和单位。") String query) {
+        String tavilyApiKey = tavilyApiKey();
         if (tavilyApiKey == null || tavilyApiKey.isBlank()) {
             return "{\"success\":false,\"message\":\"联网搜索未配置 Tavily API Key\"}";
         }
@@ -68,7 +66,7 @@ public class WebSearchTool implements ManagedTool {
         try {
             SearchOptions options = options(query);
             long start = System.currentTimeMillis();
-            List<WebSearchSource> sources = search(query, options);
+            List<WebSearchSource> sources = search(query, options, tavilyApiKey);
             long latency = System.currentTimeMillis() - start;
             double topScore = sources.isEmpty() ? 0.0 : sources.get(0).getScore();
             log.info("Web search tool finished | query=\"{}\" | hits={} | topScore={} | latency={}ms",
@@ -86,7 +84,7 @@ public class WebSearchTool implements ManagedTool {
         }
     }
 
-    private List<WebSearchSource> search(String query, SearchOptions options) throws Exception {
+    private List<WebSearchSource> search(String query, SearchOptions options, String tavilyApiKey) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("query", query);
         body.put("search_depth", options.searchDepth());
@@ -103,7 +101,7 @@ public class WebSearchTool implements ManagedTool {
                 .connectTimeout(Duration.ofMillis(options.timeoutMs()))
                 .build();
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(searchEndpoint))
+                .uri(URI.create(options.endpoint()))
                 .timeout(Duration.ofMillis(options.timeoutMs()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + tavilyApiKey)
@@ -141,17 +139,22 @@ public class WebSearchTool implements ManagedTool {
     }
 
     private SearchOptions options(String query) {
-        RagProperties.Tools.WebSearch webSearch = props.getTools().getWebSearch();
+        ToolParameterService.WebSearchSettings webSearch = parameterService.webSearchSettings();
         boolean newsLike = query.contains("新闻") || query.contains("最新消息")
                 || query.contains("发布") || query.contains("公告");
         return new SearchOptions(
-                Math.max(1, Math.min(webSearch.getMaxResults(), 20)),
-                webSearch.getSearchDepth(),
-                Math.max(0.0, webSearch.getMinScore()),
-                webSearch.getTimeRange(),
-                Math.max(1000, webSearch.getTimeoutMs()),
+                webSearch.endpoint(),
+                Math.max(1, Math.min(webSearch.maxResults(), 20)),
+                webSearch.searchDepth(),
+                Math.max(0.0, webSearch.minScore()),
+                webSearch.timeRange(),
+                Math.max(1000, webSearch.timeoutMs()),
                 newsLike
         );
+    }
+
+    private String tavilyApiKey() {
+        return tavilyApiKey;
     }
 
     private String escape(String value) {
@@ -161,7 +164,7 @@ public class WebSearchTool implements ManagedTool {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    private record SearchOptions(int maxResults, String searchDepth, double minScore,
+    private record SearchOptions(String endpoint, int maxResults, String searchDepth, double minScore,
                                  String timeRange, int timeoutMs, boolean newsLike) {
     }
 }

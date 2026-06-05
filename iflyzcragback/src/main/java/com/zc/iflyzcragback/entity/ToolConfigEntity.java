@@ -15,7 +15,8 @@ import java.time.LocalDateTime;
 /**
  * Tool configuration entity.
  *
- * <p>Tool implementations live in code. This table only controls global enablement.</p>
+ * <p>Tool implementations live in code. This table controls global enablement and non-sensitive
+ * runtime parameter overrides. Secrets such as API keys must stay in environment variables.</p>
  */
 public class ToolConfigEntity {
 
@@ -26,6 +27,7 @@ public class ToolConfigEntity {
     private String displayName;
     private String description;
     private Integer enabled;
+    private String paramsJson;
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

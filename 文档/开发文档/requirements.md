@@ -243,17 +243,18 @@
 #### 2.3.1 工具调用系统框架
 
 **功能描述：**
-工具是通过 LangChain4j `@Tool` 暴露给模型的后端能力。模型在 `TOOL_CALLING` 路由下自主决定是否调用 `current_time`、`web_search` 等工具，后端只负责按 `tools_config.enabled` 动态提供可用工具。
+工具是通过 LangChain4j `@Tool` 暴露给模型的后端能力。模型在 `TOOL_CALLING` 路由下自主决定是否调用 `current_time`、`web_search` 等工具，后端按 `tools_config.enabled` 动态提供可用工具，并按 `application.yml` 默认值与 `tools_config.params_json` 覆盖值读取非敏感运行参数。
 
 **工具调用生命周期：**
 ```
-读取 tools_config 启停状态 → 组装已启用工具对象 → 构建 AI Service → 模型自动调用 @Tool → 汇总答案、引用和 usedTools
+读取 tools_config 启停和参数覆盖 → 组装已启用工具对象 → 构建 AI Service → 模型自动调用 @Tool → 汇总答案、引用和 usedTools
 ```
 
 **配置管理：**
 - 工具配置存储在数据库（`tools_config` 表）
-- 支持运行时启用/禁用工具（无需重启服务）
-- 工具运行参数不存数据库，统一由 `application.yml` 与环境变量维护
+- 支持运行时启用/禁用工具和覆盖声明过的非敏感参数（无需重启服务）
+- 非敏感参数默认值来自 `application.yml`，管理员覆盖值写入 `tools_config.params_json`
+- API Key、token、secret、password 等敏感参数只允许走环境变量
 
 **验收标准：**
 - ✅ 支持通过 Spring Bean 注册工具列表
@@ -271,7 +272,7 @@
 
 **验收标准：**
 - ✅ 返回日期、时间、星期、时区
-- ✅ 时区读取 `rag.tools.time.default-zone`
+- ✅ 时区默认读取 `rag.tools.time.default-zone`，管理员覆盖值立即对后续调用生效
 
 ##### web_search（联网搜索工具）
 
@@ -279,8 +280,8 @@
 调用 Tavily 查询公开实时网页信息，返回标题、链接、摘要、发布时间等结构化结果。
 
 **执行逻辑：**
-1. API Key 只从环境变量读取
-2. 搜索参数读取 `rag.tools.web-search` 与 `search.*`
+1. API Key 只从 `TAVILY_API_KEY` 环境变量读取
+2. 搜索参数默认读取 `rag.tools.web-search` 与 `search.endpoint`，管理员覆盖值立即对后续调用生效
 3. 搜索结果用于模型生成答案，并由后端转换为网页引用
 
 **验收标准：**
@@ -460,11 +461,12 @@ INIT → ASK_CITY → ASK_DATE → QUERY_API → DONE
 #### 2.5.4 工具/Skill 管理界面（管理员）
 
 **功能描述：**
-管理员可以启用/禁用工具。工具运行参数由后端配置文件和环境变量维护，前端不编辑 JSON 参数。
+管理员可以启用/禁用工具，维护全局工具调用限制，并修改后端声明过的非敏感运行参数。API Key 等敏感参数不在页面展示或提交。
 
 **页面布局：**
 - 工具列表（卡片形式）
-  - 每个卡片包含：工具名称、描述、是否可用、启用/禁用开关
+  - 每个卡片包含：工具名称、描述、是否可用、启用/禁用开关、参数表单
+- 全局设置区域：工具调用总开关、最大决策轮数、最大工具调用数、总超时
 - 提供刷新按钮重新加载当前状态
 
 **验收标准：**

@@ -15,4 +15,5 @@ public class ToolVO {
     private String description;
     private Boolean enabled;
     private Boolean available;
+    private java.util.List<ToolParamDefinition> params;
 }

@@ -2,6 +2,8 @@ package com.zc.iflyzcragback.service.rag.tool;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zc.iflyzcragback.common.BizException;
+import com.zc.iflyzcragback.dto.ToolGlobalVO;
+import com.zc.iflyzcragback.dto.ToolParamDefinition;
 import com.zc.iflyzcragback.dto.ToolVO;
 import com.zc.iflyzcragback.entity.ToolConfigEntity;
 import com.zc.iflyzcragback.mapper.ToolConfigMapper;
@@ -22,6 +24,7 @@ public class ToolService {
 
     private final List<ManagedTool> toolBeans;
     private final ToolConfigMapper configMapper;
+    private final ToolParameterService parameterService;
 
     @Transactional
     public List<ToolVO> list() {
@@ -39,7 +42,8 @@ public class ToolService {
             result.add(toVO(tool, configs.get(tool.name())));
         }
         for (ToolConfigEntity config : configs.values()) {
-            if (!registered.containsKey(config.getToolName())) {
+            if (!registered.containsKey(config.getToolName())
+                    && !ToolParameterService.GLOBAL_TOOL_NAME.equals(config.getToolName())) {
                 result.add(toVO(null, config));
             }
         }
@@ -70,6 +74,32 @@ public class ToolService {
         config.setEnabled(enabled ? 1 : 0);
         configMapper.updateById(config);
         return toVO(tool, config);
+    }
+
+    public ToolGlobalVO globalParams() {
+        return ToolGlobalVO.builder()
+                .params(parameterService.globalDefinitions())
+                .build();
+    }
+
+    @Transactional
+    public ToolGlobalVO updateGlobalParams(Map<String, Object> params) {
+        return ToolGlobalVO.builder()
+                .params(parameterService.updateGlobalParams(params))
+                .build();
+    }
+
+    @Transactional
+    public ToolVO updateParams(String toolName, Map<String, Object> params) {
+        ManagedTool tool = registeredTools().get(toolName);
+        if (tool == null) {
+            throw new BizException("工具不存在: " + toolName);
+        }
+        ToolConfigEntity config = ensureConfig(tool);
+        parameterService.updateToolParams(toolName, params);
+        ToolConfigEntity refreshed = configMapper.selectOne(new LambdaQueryWrapper<ToolConfigEntity>()
+                .eq(ToolConfigEntity::getToolName, toolName));
+        return toVO(tool, refreshed == null ? config : refreshed);
     }
 
     private Map<String, ManagedTool> registeredTools() {
@@ -112,6 +142,7 @@ public class ToolService {
                 .description(tool != null ? tool.description() : config.getDescription())
                 .enabled(config != null && config.enabledAsBoolean())
                 .available(tool != null && tool.available())
+                .params(tool != null ? parameterService.toolDefinitions(toolName) : List.<ToolParamDefinition>of())
                 .build();
     }
 }

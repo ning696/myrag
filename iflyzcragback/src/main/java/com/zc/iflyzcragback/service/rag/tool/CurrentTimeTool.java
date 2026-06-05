@@ -1,7 +1,6 @@
 package com.zc.iflyzcragback.service.rag.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.zc.iflyzcragback.config.RagProperties;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +25,7 @@ public class CurrentTimeTool implements ManagedTool {
     private static final DateTimeFormatter CHINESE_FORMAT =
             DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm:ss");
 
-    private final RagProperties props;
+    private final ToolParameterService parameterService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -80,7 +79,7 @@ public class CurrentTimeTool implements ManagedTool {
     }
 
     private ZoneId zone() {
-        String zoneId = props.getTools().getTime().getDefaultZone();
+        String zoneId = parameterService.timeSettings().defaultZone();
         try {
             return ZoneId.of(zoneId == null || zoneId.isBlank() ? "Asia/Shanghai" : zoneId);
         } catch (DateTimeException e) {

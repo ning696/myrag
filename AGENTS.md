@@ -126,7 +126,7 @@ npm run preview
       Object toolInstance();
   }
   ```
-  Tools are Spring beans with LangChain4j `@Tool` methods. Admins can enable/disable tools globally from the `tools_config` table; runtime parameters stay in `application.yml` and secrets stay in environment variables.
+  Tools are Spring beans with LangChain4j `@Tool` methods. `application.yml` provides non-sensitive defaults; admins can enable/disable tools and override declared non-sensitive parameters from `tools_config.params_json`. Secrets such as API keys stay in environment variables only.
 - **Skill state management:**
   - No active `skill/` package or `SkillController` exists in the current codebase.
   - If adding skills, create a clear package/module, persist session-scoped state explicitly, and update this document plus frontend API types in the same change.
@@ -245,7 +245,7 @@ public class DocumentController {
 2. Add one or more LangChain4j `@Tool` methods with clear `@P` parameter descriptions
 3. Add `@Component` annotation for Spring auto-detection
 4. Add default row in `tools_config` seed SQL and matching frontend display if needed
-5. Keep non-sensitive runtime parameters in `application.yml`; never store API keys in the database
+5. Define any admin-editable non-sensitive parameters through the backend tool parameter schema; keep API keys and secrets out of `application.yml`, `tools_config`, API responses, and frontend forms
 
 ### Adding a New Skill
 

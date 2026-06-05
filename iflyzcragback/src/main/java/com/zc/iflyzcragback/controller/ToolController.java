@@ -1,6 +1,8 @@
 package com.zc.iflyzcragback.controller;
 
 import com.zc.iflyzcragback.common.Result;
+import com.zc.iflyzcragback.dto.ToolGlobalVO;
+import com.zc.iflyzcragback.dto.ToolParamsRequest;
 import com.zc.iflyzcragback.dto.ToolToggleRequest;
 import com.zc.iflyzcragback.dto.ToolVO;
 import com.zc.iflyzcragback.service.rag.tool.ToolService;
@@ -29,9 +31,25 @@ public class ToolController {
         return Result.success(toolService.list());
     }
 
+    @GetMapping("/global")
+    public Result<ToolGlobalVO> globalParams() {
+        return Result.success(toolService.globalParams());
+    }
+
+    @PutMapping("/global")
+    public Result<ToolGlobalVO> updateGlobalParams(@Valid @RequestBody ToolParamsRequest request) {
+        return Result.success(toolService.updateGlobalParams(request.getParams()));
+    }
+
     @PutMapping("/{name}/toggle")
     public Result<ToolVO> toggle(@PathVariable String name,
                                  @Valid @RequestBody ToolToggleRequest request) {
         return Result.success(toolService.toggle(name, request.getEnabled()));
+    }
+
+    @PutMapping("/{name}/params")
+    public Result<ToolVO> updateParams(@PathVariable String name,
+                                       @Valid @RequestBody ToolParamsRequest request) {
+        return Result.success(toolService.updateParams(name, request.getParams()));
     }
 }

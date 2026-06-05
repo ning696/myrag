@@ -243,7 +243,8 @@ CREATE TABLE IF NOT EXISTS `skill_states` (
 
 -- ---------------------------------------------------------------------
 -- 6. tools_config Tool 配置表
---    - 全局启停配置（不区分用户），仅 ADMIN 可写
+--    - 全局启停配置和非敏感参数覆盖（不区分用户），仅 ADMIN 可写
+--    - API Key 等敏感参数禁止入库，必须通过环境变量提供
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `tools_config` (
     `id`           BIGINT       NOT NULL AUTO_INCREMENT                     COMMENT '配置ID',
@@ -251,6 +252,7 @@ CREATE TABLE IF NOT EXISTS `tools_config` (
     `display_name` VARCHAR(100)          DEFAULT NULL                       COMMENT 'Tool 展示名称',
     `description`  VARCHAR(500)          DEFAULT NULL                       COMMENT 'Tool 描述',
     `enabled`      TINYINT      NOT NULL DEFAULT 1                          COMMENT '是否启用：0=禁用, 1=启用',
+    `params_json`  JSON                  DEFAULT NULL                       COMMENT '非敏感运行参数覆盖，敏感信息禁止写入',
     `created_at`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP          COMMENT '创建时间',
     `updated_at`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
                                 ON UPDATE CURRENT_TIMESTAMP                 COMMENT '更新时间',
@@ -279,7 +281,15 @@ SELECT 'admin',
        'active'
 WHERE NOT EXISTS (SELECT 1 FROM `users` WHERE `username` = 'admin');
 
--- 默认 Tool 配置。Tavily API Key 不写入数据库，必须通过 TAVILY_API_KEY 环境变量提供。
+-- 默认 Tool 配置。非敏感参数默认值来自 application.yml，管理员覆盖值写入 params_json。
+-- Tavily API Key 不写入数据库或配置文件，必须通过 TAVILY_API_KEY 环境变量提供。
+INSERT INTO `tools_config` (`tool_name`, `display_name`, `description`, `enabled`)
+SELECT '__global__',
+       '工具全局设置',
+       '模型工具调用全局参数',
+       1
+WHERE NOT EXISTS (SELECT 1 FROM `tools_config` WHERE `tool_name` = '__global__');
+
 INSERT INTO `tools_config` (`tool_name`, `display_name`, `description`, `enabled`)
 SELECT 'current_time',
        '当前时间',

@@ -95,8 +95,32 @@ export interface ToolConfig {
   description: string
   enabled: boolean
   available: boolean
+  params: ToolParamDefinition[]
 }
 
 export interface ToolToggleRequest {
   enabled: boolean
+}
+
+export type ToolParamValue = string | number | boolean
+
+export interface ToolParamDefinition {
+  key: string
+  label: string
+  type: 'boolean' | 'integer' | 'number' | 'select' | 'timezone' | 'url'
+  description: string
+  defaultValue: ToolParamValue
+  value: ToolParamValue
+  overridden: boolean
+  options?: string[]
+  min?: number
+  max?: number
+}
+
+export interface ToolParamsRequest {
+  params: Record<string, ToolParamValue>
+}
+
+export interface ToolGlobalConfig {
+  params: ToolParamDefinition[]
 }

@@ -181,11 +181,12 @@ mail:
   ssl-enable: true
 
 # 网络搜索 API（web_search tool 使用）
-# Tavily API Key 仅从 TAVILY_API_KEY 环境变量读取，不写入 tools_config。
+# Tavily API Key 仅从 TAVILY_API_KEY 环境变量读取，不写入配置文件或 tools_config。
 search:
   provider: tavily
-  api-key: ${TAVILY_API_KEY:}
   endpoint: ${SEARCH_ENDPOINT:https://api.tavily.com/search}
+  # Resolved by Spring from TAVILY_API_KEY or imported .env; never persisted to tools_config.
+  api-key: ${TAVILY_API_KEY:}
   timeout: 5000
 
 # 天气 API（WeatherSkill 使用，默认和风天气）

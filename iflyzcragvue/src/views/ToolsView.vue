@@ -1,19 +1,46 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, Tools } from '@element-plus/icons-vue'
+import { Check, Refresh, Setting, Tools } from '@element-plus/icons-vue'
 import * as toolApi from '@/api/tool'
-import type { ToolConfig } from '@/types/api'
+import type { ToolConfig, ToolGlobalConfig, ToolParamDefinition, ToolParamValue } from '@/types/api'
 
 const tools = ref<ToolConfig[]>([])
+const globalConfig = ref<ToolGlobalConfig | null>(null)
 const loading = ref(false)
+const globalSaving = ref(false)
 const saving = reactive<Record<string, boolean>>({})
+const paramSaving = reactive<Record<string, boolean>>({})
+const toolForms = reactive<Record<string, Record<string, ToolParamValue>>>({})
+const globalForm = reactive<Record<string, ToolParamValue>>({})
+
+const syncParamForm = (target: Record<string, ToolParamValue>, params: ToolParamDefinition[] = []) => {
+  Object.keys(target).forEach((key) => delete target[key])
+  params.forEach((param) => {
+    target[param.key] = param.value
+  })
+}
+
+const syncToolForms = () => {
+  tools.value.forEach((tool) => {
+    if (!toolForms[tool.toolName]) {
+      toolForms[tool.toolName] = {}
+    }
+    syncParamForm(toolForms[tool.toolName], tool.params)
+  })
+}
 
 const loadTools = async () => {
   loading.value = true
   try {
-    const res = await toolApi.listTools()
-    tools.value = res.data
+    const [toolRes, globalRes] = await Promise.all([
+      toolApi.listTools(),
+      toolApi.getGlobalToolParams(),
+    ])
+    tools.value = toolRes.data
+    globalConfig.value = globalRes.data
+    syncToolForms()
+    syncParamForm(globalForm, globalConfig.value.params)
   } finally {
     loading.value = false
   }
@@ -32,6 +59,52 @@ const toggleTool = async (tool: ToolConfig) => {
   }
 }
 
+const buildParams = (params: ToolParamDefinition[], form: Record<string, ToolParamValue>) =>
+  params.reduce<Record<string, ToolParamValue>>((acc, param) => {
+    acc[param.key] = form[param.key]
+    return acc
+  }, {})
+
+const saveGlobalParams = async () => {
+  if (!globalConfig.value) return
+  globalSaving.value = true
+  try {
+    const res = await toolApi.updateGlobalToolParams({
+      params: buildParams(globalConfig.value.params, globalForm),
+    })
+    globalConfig.value = res.data
+    syncParamForm(globalForm, res.data.params)
+    ElMessage.success('全局参数已保存')
+  } catch {
+    syncParamForm(globalForm, globalConfig.value.params)
+  } finally {
+    globalSaving.value = false
+  }
+}
+
+const saveToolParams = async (tool: ToolConfig) => {
+  const form = toolForms[tool.toolName]
+  if (!form) return
+  paramSaving[tool.toolName] = true
+  try {
+    const res = await toolApi.updateToolParams(tool.toolName, {
+      params: buildParams(tool.params, form),
+    })
+    Object.assign(tool, res.data)
+    syncParamForm(form, tool.params)
+    ElMessage.success('工具参数已保存')
+  } catch {
+    syncParamForm(form, tool.params)
+  } finally {
+    paramSaving[tool.toolName] = false
+  }
+}
+
+const formatDefault = (value: ToolParamValue) => {
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  return String(value)
+}
+
 onMounted(loadTools)
 </script>
 
@@ -40,14 +113,68 @@ onMounted(loadTools)
     <header class="page-header">
       <div>
         <h1 class="page-title">工具管理</h1>
-        <p class="page-description">启停模型可调用的实时工具，参数由后端配置文件维护。</p>
+        <p class="page-description">工具启停、全局调用限制和非敏感运行参数。</p>
       </div>
       <el-button :icon="Refresh" :loading="loading" @click="loadTools">刷新</el-button>
     </header>
 
+    <section v-if="globalConfig" class="panel global-panel">
+      <header class="section-head">
+        <div class="tool-title">
+          <el-icon><Setting /></el-icon>
+          <div>
+            <h2>全局设置</h2>
+            <span>模型工具调用的统一运行参数</span>
+          </div>
+        </div>
+        <el-button
+          type="primary"
+          :icon="Check"
+          :loading="globalSaving"
+          @click="saveGlobalParams"
+        >
+          保存
+        </el-button>
+      </header>
+
+      <div class="param-grid">
+        <label v-for="param in globalConfig.params" :key="param.key" class="param-field">
+          <span class="param-label">
+            {{ param.label }}
+            <el-tag v-if="param.overridden" size="small" type="warning">已覆盖</el-tag>
+            <el-tag v-else size="small">默认</el-tag>
+          </span>
+          <el-switch
+            v-if="param.type === 'boolean'"
+            v-model="globalForm[param.key]"
+            active-text="启用"
+            inactive-text="禁用"
+          />
+          <el-input-number
+            v-else-if="param.type === 'integer' || param.type === 'number'"
+            v-model="globalForm[param.key]"
+            :min="param.min"
+            :max="param.max"
+            :step="param.type === 'number' ? 0.1 : 1"
+            controls-position="right"
+          />
+          <el-select v-else-if="param.type === 'select'" v-model="globalForm[param.key]">
+            <el-option
+              v-for="option in param.options || []"
+              :key="option"
+              :label="option"
+              :value="option"
+            />
+          </el-select>
+          <el-input v-else v-model="globalForm[param.key]" />
+          <span class="param-meta">默认值：{{ formatDefault(param.defaultValue) }}</span>
+        </label>
+      </div>
+    </section>
+
     <div class="tool-grid">
       <article v-for="tool in tools" :key="tool.toolName" class="panel tool-panel">
-        <header class="tool-head">
+        <header class="section-head">
           <div class="tool-title">
             <el-icon><Tools /></el-icon>
             <div>
@@ -69,6 +196,54 @@ onMounted(loadTools)
             {{ tool.available ? '可用' : '不可用' }}
           </el-tag>
           <el-tag size="small">{{ tool.toolName }}</el-tag>
+        </div>
+
+        <div v-if="tool.params?.length" class="param-grid">
+          <label v-for="param in tool.params" :key="param.key" class="param-field">
+            <span class="param-label">
+              {{ param.label }}
+              <el-tag v-if="param.overridden" size="small" type="warning">已覆盖</el-tag>
+              <el-tag v-else size="small">默认</el-tag>
+            </span>
+            <el-switch
+              v-if="param.type === 'boolean'"
+              v-model="toolForms[tool.toolName][param.key]"
+              active-text="启用"
+              inactive-text="禁用"
+            />
+            <el-input-number
+              v-else-if="param.type === 'integer' || param.type === 'number'"
+              v-model="toolForms[tool.toolName][param.key]"
+              :min="param.min"
+              :max="param.max"
+              :step="param.type === 'number' ? 0.1 : 1"
+              controls-position="right"
+            />
+            <el-select
+              v-else-if="param.type === 'select'"
+              v-model="toolForms[tool.toolName][param.key]"
+            >
+              <el-option
+                v-for="option in param.options || []"
+                :key="option"
+                :label="option"
+                :value="option"
+              />
+            </el-select>
+            <el-input v-else v-model="toolForms[tool.toolName][param.key]" />
+            <span class="param-meta">默认值：{{ formatDefault(param.defaultValue) }}</span>
+          </label>
+        </div>
+
+        <div v-if="tool.params?.length" class="panel-actions">
+          <el-button
+            type="primary"
+            :icon="Check"
+            :loading="paramSaving[tool.toolName]"
+            @click="saveToolParams(tool)"
+          >
+            保存参数
+          </el-button>
         </div>
       </article>
     </div>
@@ -100,13 +275,20 @@ onMounted(loadTools)
   gap: 14px;
 }
 
-.tool-panel {
+.global-panel {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   padding: 18px;
 }
 
-.tool-head {
+.tool-panel {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 18px;
+}
+
+.section-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -147,9 +329,44 @@ onMounted(loadTools)
   gap: 8px;
 }
 
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.param-field {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.param-label {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.param-meta {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.panel-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 @media (max-width: 640px) {
   .page-header,
-  .tool-head {
+  .section-head {
     align-items: stretch;
     flex-direction: column;
   }

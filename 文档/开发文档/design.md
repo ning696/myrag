@@ -446,7 +446,7 @@ CREATE TABLE chat_messages (
 
 #### 3.2.5 tools_config 表（工具配置）
 
-存储工具的启停状态。工具运行参数不进入数据库，统一由 `application.yml` 与环境变量维护。
+存储工具的启停状态和管理员覆盖的非敏感运行参数。`application.yml` 提供默认值，`params_json` 只保存和默认值不同的非敏感覆盖值；API Key 等敏感信息只允许走环境变量。
 
 ```sql
 CREATE TABLE tools_config (
@@ -455,6 +455,7 @@ CREATE TABLE tools_config (
     display_name VARCHAR(100) NOT NULL COMMENT '展示名称',
     description VARCHAR(500) COMMENT '工具描述',
     enabled BOOLEAN DEFAULT TRUE COMMENT '是否启用',
+    params_json JSON DEFAULT NULL COMMENT '非敏感运行参数覆盖，敏感信息禁止写入',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     deleted TINYINT DEFAULT 0 COMMENT '逻辑删除：0 未删除，1 已删除',
@@ -463,7 +464,7 @@ CREATE TABLE tools_config (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工具配置表';
 ```
 
-默认工具为 `current_time` 和 `web_search`。前端只允许管理员启停工具，不提供 JSON 参数、Hook 或优先级编辑。
+默认工具为 `current_time` 和 `web_search`，另有保留配置行 `__global__` 保存全局工具调用参数覆盖值。前端只展示后端声明的参数 schema，不提供任意 JSON、Hook 或优先级编辑。
 
 #### 3.2.6 skill_states 表（Skill 状态）
 
@@ -1208,8 +1209,9 @@ public class RagConfig {
 业务层不再存在自研工具钩子或工具管理器。实时能力统一通过 LangChain4j `@Tool` 暴露给模型，由 `RealtimeAssistant` AI Service 自动判断和执行工具调用。
 
 核心约束：
-- 工具启停存储在 `tools_config`，仅包含启停与展示信息。
-- 工具运行参数放在 `application.yml` 与环境变量中，前端不编辑 JSON 参数。
+- 工具启停存储在 `tools_config.enabled`。
+- `application.yml` 提供非敏感参数默认值，管理员覆盖值存储在 `tools_config.params_json`。
+- API Key、token、secret、password 等敏感参数只允许走环境变量，不进入数据库、配置文件、接口响应或前端表单。
 - 当前内置工具只有 `current_time` 和 `web_search`。
 - 涉及“今天/当前/最新/实时”的公开信息查询时，系统提示要求先调用 `current_time`，再按需调用 `web_search`。
 - 工具失败或禁用时不得编造实时数值。
@@ -1224,7 +1226,8 @@ service/rag/tool/
 ├── WebSearchSource.java          # 搜索来源结构
 ├── RealtimeAssistant.java        # LangChain4j AI Service 接口
 ├── RealtimeToolCallingService.java # 构建 AI Service、汇总答案/引用/usedTools
-└── ToolService.java              # 管理 tools_config 启停
+├── ToolParameterService.java     # 参数 schema、校验与运行时覆盖
+└── ToolService.java              # 管理 tools_config 启停和参数接口
 ```
 
 ### 6.3 管理 API
@@ -1232,9 +1235,12 @@ service/rag/tool/
 | 接口 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|------|
 | 获取工具列表 | GET | `/api/tools` | 返回已注册工具与启停状态 | ADMIN |
+| 获取全局参数 | GET | `/api/tools/global` | 返回工具调用全局参数 schema 和有效值 | ADMIN |
+| 更新全局参数 | PUT | `/api/tools/global` | 更新 `__global__` 的非敏感参数覆盖 | ADMIN |
 | 启用/禁用工具 | PUT | `/api/tools/{name}/toggle` | 更新 `tools_config.enabled` | ADMIN |
+| 更新工具参数 | PUT | `/api/tools/{name}/params` | 更新指定工具的非敏感参数覆盖 | ADMIN |
 
-`ToolVO` 固定字段：`toolName`、`displayName`、`description`、`enabled`、`available`。
+`ToolVO` 固定字段：`toolName`、`displayName`、`description`、`enabled`、`available`、`params`。`params` 来自后端 schema，包含 key、类型、默认值、有效值和是否覆盖。
 
 ### 6.4 调用流程
 

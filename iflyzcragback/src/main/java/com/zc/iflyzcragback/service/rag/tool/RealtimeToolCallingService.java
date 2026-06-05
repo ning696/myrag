@@ -3,7 +3,6 @@ package com.zc.iflyzcragback.service.rag.tool;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.zc.iflyzcragback.config.RagProperties;
 import com.zc.iflyzcragback.dto.CitationVO;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.service.AiServices;
@@ -33,11 +32,12 @@ public class RealtimeToolCallingService {
 
     private final ObjectProvider<ChatLanguageModel> chatModelProvider;
     private final ToolService toolService;
-    private final RagProperties props;
+    private final ToolParameterService parameterService;
     private final ObjectMapper objectMapper;
 
     public ToolCallingResult answer(String query) {
-        if (!props.getTools().isEnabled()) {
+        ToolParameterService.GlobalSettings settings = parameterService.globalSettings();
+        if (!settings.enabled()) {
             return ToolCallingResult.unavailable("tool calling disabled");
         }
         ChatLanguageModel chatModel = chatModelProvider.getIfAvailable();
@@ -54,10 +54,10 @@ public class RealtimeToolCallingService {
             RealtimeAssistant assistant = AiServices.builder(RealtimeAssistant.class)
                     .chatLanguageModel(chatModel)
                     .tools(enabledTools.stream().map(ManagedTool::toolInstance).toList())
-                    .maxSequentialToolsInvocations(Math.max(1, props.getTools().getMaxCalls()))
+                    .maxSequentialToolsInvocations(Math.max(1, settings.maxCalls()))
                     .build();
 
-            Result<String> result = callWithTimeout(() -> assistant.answer(query));
+            Result<String> result = callWithTimeout(() -> assistant.answer(query), settings.totalTimeoutMs());
             List<ToolExecution> executions = result.toolExecutions() == null ? List.of() : result.toolExecutions();
             if (executions.isEmpty()) {
                 return ToolCallingResult.unavailable("model did not request tools");
@@ -85,8 +85,7 @@ public class RealtimeToolCallingService {
         }
     }
 
-    private Result<String> callWithTimeout(Callable<Result<String>> callable) throws Exception {
-        int timeoutMs = props.getTools().getTotalTimeoutMs();
+    private Result<String> callWithTimeout(Callable<Result<String>> callable, int timeoutMs) throws Exception {
         if (timeoutMs <= 0) {
             return callable.call();
         }
