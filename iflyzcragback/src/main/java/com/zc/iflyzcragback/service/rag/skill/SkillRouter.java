@@ -29,6 +29,10 @@ public class SkillRouter {
             - WeatherSkill 负责天气查询流程。用户询问天气、天气预报、是否下雨、冷热、风力等，即使缺少城市或日期，也应优先选择 WeatherSkill，让 Skill 继续追问缺失信息。
             - 选择 WeatherSkill 时，尽量从用户输入中抽取 slots.city 和 slots.dateText。dateText 只填“今天/明天/后天”或 yyyy-MM-dd；没有明确日期则留空。
             - EmailSkill 负责真实发邮件流程。用户表达要发邮件、写邮件并发送、给某人发送通知等，应选择 EmailSkill，让 Skill 收集收件人、主题、内容并确认。
+            - 选择 EmailSkill 时，尽量从用户输入中抽取 slots.recipient、slots.subject、slots.content。
+            - EmailSkill 的 recipient 必须是用户原文中明确出现的邮箱地址；不能猜测、编造、补全收件人邮箱。
+            - 如果用户要求帮忙写邮件主题，slots.subjectDraftRequested 填 "true"，并把写作意图或要点放入 slots.draftBrief；不要把“帮我写主题”原句当作主题。
+            - 如果用户要求帮忙写邮件内容/正文，slots.contentDraftRequested 填 "true"，并把写作意图或要点放入 slots.draftBrief；不要把“帮我写内容”原句当作内容。
             - 如果用户明确要求根据知识库、文档、上传资料、代码、设计、实现、API 原理来回答，不要选择 Skill，应选择 NONE。
             - 普通闲聊、知识解释、公开新闻/价格/汇率/政策查询不要选择 Skill。
             - 不能因为句子里出现“天气”“邮件”就一定触发；要判断用户是否要执行对应任务。
@@ -56,7 +60,7 @@ public class SkillRouter {
             用户输入：%s
 
             输出格式：
-            {"skillName":"EmailSkill|WeatherSkill|NONE","confidence":0到1,"reason":"简短原因","slots":{"city":"城市名或空","dateText":"今天|明天|后天|yyyy-MM-dd 或空"}}
+            {"skillName":"EmailSkill|WeatherSkill|NONE","confidence":0到1,"reason":"简短原因","slots":{"city":"城市名或空","dateText":"今天|明天|后天|yyyy-MM-dd 或空","recipient":"用户原文中的邮箱或空","subject":"邮件主题或空","content":"邮件正文或空","subjectDraftRequested":"true 或空","contentDraftRequested":"true 或空","draftBrief":"代写主题/正文所需要点或空"}}
             """;
 
     private final SkillService skillService;
@@ -118,6 +122,12 @@ public class SkillRouter {
         }
         putIfPresent(slots, "city", slotsNode.path("city").asText(""));
         putIfPresent(slots, "dateText", slotsNode.path("dateText").asText(""));
+        putIfPresent(slots, "recipient", slotsNode.path("recipient").asText(""));
+        putIfPresent(slots, "subject", slotsNode.path("subject").asText(""));
+        putIfPresent(slots, "content", slotsNode.path("content").asText(""));
+        putIfPresent(slots, "subjectDraftRequested", slotsNode.path("subjectDraftRequested").asText(""));
+        putIfPresent(slots, "contentDraftRequested", slotsNode.path("contentDraftRequested").asText(""));
+        putIfPresent(slots, "draftBrief", slotsNode.path("draftBrief").asText(""));
         return slots;
     }
 
