@@ -7,8 +7,16 @@ import com.zc.iflyzcragback.security.SecurityUtils;
 import com.zc.iflyzcragback.service.document.DocumentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/documents")
@@ -63,6 +71,28 @@ public class DocumentController {
     /**
      * 分页查询当前用户上传的文档。
      */
+    @GetMapping("/{id}/download")
+    public ResponseEntity<InputStreamResource> download(@PathVariable Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        DocumentDownloadResource resource = documentService.download(id, userId);
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename(resource.filename(), StandardCharsets.UTF_8)
+                        .build()
+                        .toString());
+        if (resource.fileSize() != null) {
+            builder.contentLength(resource.fileSize());
+        }
+        return builder.body(new InputStreamResource(resource.inputStream()));
+    }
+
+    @GetMapping("/{id}/chunks")
+    public Result<List<ChunkPreviewVO>> chunks(@PathVariable Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        return Result.success(documentService.listChunks(id, userId));
+    }
+
     @GetMapping
     public Result<Page<DocumentVO>> list(@RequestParam(defaultValue = "1") int page,
                                          @RequestParam(defaultValue = "10") int size) {

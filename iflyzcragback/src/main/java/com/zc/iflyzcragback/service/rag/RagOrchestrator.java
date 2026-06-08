@@ -1,6 +1,7 @@
 package com.zc.iflyzcragback.service.rag;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zc.iflyzcragback.config.RagProperties;
 import com.zc.iflyzcragback.dto.CitationVO;
@@ -253,20 +254,22 @@ public class RagOrchestrator {
                     // 回答完成后，把引用信息单独发给前端，方便展示来源卡片。
                     if (emitterActive.get() && citations != null && !citations.isEmpty()) {
                         emitter.send(SseEmitter.event().name("citations").data(
-                                objectMapper.writeValueAsString(citations)));
+                            objectMapper.writeValueAsString(citations)));
                     }
+                    String persistedSourceDocuments = sourceDocumentsForPersistence(sourceDocuments, citations);
                     if (emitterActive.get()) {
                         emitter.send(SseEmitter.event().name("done").data(
                                 donePayload(answerMode, confidence, routeReason, usedTools)));
                         emitter.complete();
                     }
                     saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence,
-                            answerMode, toolUsed, sourceDocuments);
+                            answerMode, toolUsed, persistedSourceDocuments);
                 } catch (IOException | IllegalStateException e) {
                     emitterActive.set(false);
                     log.warn("SSE client disconnected before completion, sessionId={}", sessionId);
+                    String persistedSourceDocuments = sourceDocumentsForPersistence(sourceDocuments, citations);
                     saveMessage(sessionId, query, answerBuilder.toString(), startTime, confidence,
-                            answerMode, toolUsed, sourceDocuments);
+                            answerMode, toolUsed, persistedSourceDocuments);
                 }
             }
 
@@ -378,6 +381,22 @@ public class RagOrchestrator {
             ));
         }
         return citations;
+    }
+
+    String sourceDocumentsForPersistence(String existingSourceDocuments, List<CitationVO> citations) {
+        if (existingSourceDocuments != null && !existingSourceDocuments.isBlank()) {
+            return existingSourceDocuments;
+        }
+        if (citations == null || citations.isEmpty()) {
+            return null;
+        }
+        try {
+            ObjectMapper mapper = objectMapper == null ? new ObjectMapper() : objectMapper;
+            return mapper.writeValueAsString(citations);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize citations for message source documents", e);
+            return null;
+        }
     }
 
     /**

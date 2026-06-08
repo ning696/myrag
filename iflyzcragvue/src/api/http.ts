@@ -2,8 +2,10 @@ import axios, { AxiosError } from 'axios'
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
 import { clearAuthStorage, getStoredToken } from '@/utils/authStorage'
 
+const defaultApiBaseUrl = import.meta.env.DEV ? 'http://localhost:8080' : ''
+
 const http: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
+  baseURL: import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -23,6 +25,9 @@ http.interceptors.request.use(
 
 http.interceptors.response.use(
   (response: AxiosResponse) => {
+    if (response.config.responseType === 'blob') {
+      return response
+    }
     const res = response.data
     if (res.code !== 0) {
       console.error('API Error:', res.message)

@@ -1,5 +1,6 @@
 import http from './http'
-import type { Document, UploadResponse, ChunkParams, IngestProgress } from '@/types/api'
+import type { AxiosResponse } from 'axios'
+import type { Document, UploadResponse, ChunkParams, IngestProgress, ChunkPreview } from '@/types/api'
 
 export const uploadDocument = (file: File) => {
   const formData = new FormData()
@@ -21,6 +22,14 @@ export const getIngestProgress = (id: number) =>
 export const listDocuments = (page: number, size: number) =>
   http.get<any, { data: { records: Document[], total: number } }>('/api/documents', {
     params: { page, size }
+  })
+
+export const listDocumentChunks = (id: number) =>
+  http.get<any, { data: ChunkPreview[] }>(`/api/documents/${id}/chunks`)
+
+export const downloadDocument = (id: number) =>
+  http.get<any, AxiosResponse<Blob>>(`/api/documents/${id}/download`, {
+    responseType: 'blob'
   })
 
 export const deleteDocument = (id: number) =>

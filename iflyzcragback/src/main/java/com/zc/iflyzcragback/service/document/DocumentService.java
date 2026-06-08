@@ -26,6 +26,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -252,7 +254,42 @@ public class DocumentService {
     }
 
     /**
-     * 分页查询当前用户的文档列表。
+     * Download the original uploaded file owned by the current user.
+     */
+    public DocumentDownloadResource download(Long documentId, Long userId) {
+        DocumentEntity doc = requireOwnedDocument(documentId, userId);
+        try {
+            return new DocumentDownloadResource(
+                    doc.getFilename(),
+                    doc.getFileSize(),
+                    doc.getFileType(),
+                    fileStorage.download(doc.getVectorStoreId()));
+        } catch (Exception e) {
+            throw new BizException("文件下载失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * List persisted chunks for the current user's document.
+     */
+    public List<ChunkPreviewVO> listChunks(Long documentId, Long userId) {
+        requireOwnedDocument(documentId, userId);
+        return chunkMapper.selectList(new LambdaQueryWrapper<DocumentChunkEntity>()
+                        .eq(DocumentChunkEntity::getDocumentId, documentId)
+                        .eq(DocumentChunkEntity::getUserId, userId)
+                        .orderByAsc(DocumentChunkEntity::getChunkIndex))
+                .stream()
+                .sorted(Comparator.comparing(DocumentChunkEntity::getChunkIndex))
+                .map(chunk -> new ChunkPreviewVO(
+                        chunk.getChunkIndex(),
+                        chunk.getContent(),
+                        chunk.getTitle(),
+                        splitKeywords(chunk.getKeywords())))
+                .toList();
+    }
+
+    /**
+     * List documents owned by the current user.
      */
     public Page<DocumentVO> list(Long userId, int page, int size) {
         Page<DocumentEntity> p = documentMapper.selectPage(
@@ -309,6 +346,24 @@ public class DocumentService {
     /**
      * 校验上传文件是否合法。
      */
+    private DocumentEntity requireOwnedDocument(Long documentId, Long userId) {
+        DocumentEntity doc = documentMapper.selectById(documentId);
+        if (doc == null || !doc.getUserId().equals(userId)) {
+            throw new BizException("文档不存在");
+        }
+        return doc;
+    }
+
+    private List<String> splitKeywords(String keywords) {
+        if (keywords == null || keywords.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(keywords.split(","))
+                .map(String::trim)
+                .filter(keyword -> !keyword.isEmpty())
+                .toList();
+    }
+
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BizException("文件为空");

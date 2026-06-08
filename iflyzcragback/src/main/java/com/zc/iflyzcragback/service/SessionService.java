@@ -2,6 +2,7 @@ package com.zc.iflyzcragback.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zc.iflyzcragback.common.BizException;
 import com.zc.iflyzcragback.dto.CitationVO;
@@ -131,6 +132,20 @@ public class SessionService {
             return List.of();
         }
         try {
+            JsonNode root = objectMapper.readTree(sourceDocuments);
+            if (!root.isArray() || root.isEmpty()) {
+                return List.of();
+            }
+            if (isSavedCitation(root.get(0))) {
+                List<CitationVO> citations = objectMapper.readValue(
+                        sourceDocuments, new TypeReference<List<CitationVO>>() {});
+                citations.forEach(citation -> {
+                    if (citation.getSourceType() == null || citation.getSourceType().isBlank()) {
+                        citation.setSourceType("document");
+                    }
+                });
+                return citations;
+            }
             List<WebSearchSource> sources = objectMapper.readValue(
                     sourceDocuments, new TypeReference<List<WebSearchSource>>() {});
             List<CitationVO> citations = new java.util.ArrayList<>();
@@ -152,5 +167,13 @@ public class SessionService {
             log.debug("Failed to parse message source documents for citations", e);
             return List.of();
         }
+    }
+
+    private boolean isSavedCitation(JsonNode node) {
+        return node.has("sourceType")
+                || node.has("n")
+                || node.has("documentId")
+                || node.has("documentName")
+                || node.has("chunkIndex");
     }
 }

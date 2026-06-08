@@ -2,9 +2,9 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatDotRound, Delete, DocumentAdd, Files, Search, UploadFilled } from '@element-plus/icons-vue'
+import { ChatDotRound, Delete, DocumentAdd, Download, Files, Search, UploadFilled, View } from '@element-plus/icons-vue'
 import * as docApi from '@/api/document'
-import type { Document } from '@/types/api'
+import type { ChunkPreview, Document } from '@/types/api'
 
 const router = useRouter()
 const documents = ref<Document[]>([])
@@ -14,6 +14,11 @@ const size = ref(10)
 const loading = ref(false)
 const keyword = ref('')
 const statusFilter = ref('')
+const chunkDrawerVisible = ref(false)
+const chunkLoading = ref(false)
+const chunkDocument = ref<Document | null>(null)
+const documentChunks = ref<ChunkPreview[]>([])
+const downloadingId = ref<number | null>(null)
 
 const fetchDocuments = async () => {
   loading.value = true
@@ -42,6 +47,41 @@ const handleDelete = async (row: Document) => {
     if (error !== 'cancel' && error !== 'close') {
       ElMessage.error('删除失败：' + error.message)
     }
+  }
+}
+
+const handleViewChunks = async (row: Document) => {
+  chunkDocument.value = row
+  chunkDrawerVisible.value = true
+  chunkLoading.value = true
+  documentChunks.value = []
+  try {
+    const res = await docApi.listDocumentChunks(row.id)
+    documentChunks.value = res.data
+  } catch (error: any) {
+    ElMessage.error('加载切分详情失败：' + (error.message || '未知错误'))
+  } finally {
+    chunkLoading.value = false
+  }
+}
+
+const handleDownload = async (row: Document) => {
+  downloadingId.value = row.id
+  try {
+    const res = await docApi.downloadDocument(row.id)
+    const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = row.filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (error: any) {
+    ElMessage.error('下载失败：' + (error.message || '未知错误'))
+  } finally {
+    downloadingId.value = null
   }
 }
 
@@ -172,8 +212,18 @@ onMounted(() => fetchDocuments())
             <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="118" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" :icon="View" @click="handleViewChunks(row)">详情</el-button>
+            <el-button
+              link
+              type="primary"
+              :icon="Download"
+              :loading="downloadingId === row.id"
+              @click="handleDownload(row)"
+            >
+              下载
+            </el-button>
             <el-button link type="danger" :icon="Delete" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -197,6 +247,34 @@ onMounted(() => fetchDocuments())
         @current-change="fetchDocuments"
       />
     </div>
+
+    <el-drawer v-model="chunkDrawerVisible" size="min(100vw, 560px)" class="chunks-drawer">
+      <template #header>
+        <div class="drawer-header">
+          <strong>{{ chunkDocument?.filename || '切分详情' }}</strong>
+          <span>{{ documentChunks.length }} 个切片</span>
+        </div>
+      </template>
+
+      <div v-loading="chunkLoading" class="drawer-body">
+        <el-empty v-if="!chunkLoading && !documentChunks.length" description="暂无切分片段" />
+        <div v-else class="drawer-chunk-list">
+          <article v-for="chunk in documentChunks" :key="chunk.chunkIndex" class="drawer-chunk">
+            <header>
+              <div class="chunk-title-line">
+                <span class="chunk-index">#{{ chunk.chunkIndex + 1 }}</span>
+                <strong>{{ chunk.title || '未命名片段' }}</strong>
+              </div>
+              <span>{{ chunk.content?.length || 0 }} 字符</span>
+            </header>
+            <div v-if="chunk.keywords?.length" class="chunk-keywords">
+              <el-tag v-for="keyword in chunk.keywords" :key="keyword" size="small">{{ keyword }}</el-tag>
+            </div>
+            <p>{{ chunk.content }}</p>
+          </article>
+        </div>
+      </div>
+    </el-drawer>
   </section>
 </template>
 
@@ -307,6 +385,101 @@ onMounted(() => fetchDocuments())
 
 .file-cell small {
   color: var(--text-tertiary);
+}
+
+.drawer-header {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.drawer-header strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-header span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.drawer-body {
+  min-height: 220px;
+}
+
+.drawer-chunk-list {
+  display: grid;
+  gap: 12px;
+}
+
+.drawer-chunk {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 14px;
+}
+
+.drawer-chunk header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drawer-chunk header > span {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.chunk-title-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.chunk-title-line strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chunk-index {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 38px;
+  padding: 3px 6px;
+}
+
+.chunk-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.drawer-chunk p {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 @media (max-width: 900px) {

@@ -11,6 +11,8 @@ const chatStore = useChatStore()
 const query = ref('')
 const sending = ref(false)
 const messagesContainer = ref<HTMLDivElement>()
+const defaultApiBaseUrl = import.meta.env.DEV ? 'http://localhost:8080' : ''
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl).replace(/\/$/, '')
 
 const activeSessionTitle = computed(() => {
   const session = chatStore.sessions.find((s) => s.sessionId === chatStore.activeSessionId)
@@ -36,7 +38,7 @@ const handleSend = async () => {
   chatStore.addMessage(aiMsg)
 
   const token = localStorage.getItem('token')
-  await fetchEventSource('http://localhost:8080/api/chat/messages/stream', {
+  await fetchEventSource(`${apiBaseUrl}/api/chat/messages/stream`, {
     openWhenHidden: true,
     method: 'POST',
     headers: {
