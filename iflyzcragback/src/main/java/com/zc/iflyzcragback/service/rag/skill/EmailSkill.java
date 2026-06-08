@@ -33,6 +33,7 @@ public class EmailSkill implements Skill {
 
     private final EmailDeliveryService emailDeliveryService;
     private final EmailDraftService emailDraftService;
+    private final EmailDraftIntentService emailDraftIntentService;
 
     @Override
     public String name() {
@@ -106,27 +107,29 @@ public class EmailSkill implements Skill {
     }
 
     private SkillResult handleSubject(String input, SkillContext context) {
-        if (isSubjectDraftRequest(input)) {
-            return draftSubject(input, context.mutableState());
-        }
         String subject = normalize(input);
         if (subject.isBlank()) {
             return SkillResult.ask("邮件主题不能为空，请输入邮件主题。", ASK_SUBJECT, context.mutableState());
         }
         Map<String, Object> state = context.mutableState();
+        Optional<EmailDraftIntent> intent = emailDraftIntentService.detect(input, ASK_SUBJECT, state);
+        if (intent.map(EmailDraftIntent::requestsSubjectDraft).orElse(false)) {
+            return draftSubjectAndMaybeContent(intent.get(), state);
+        }
         state.put(SUBJECT, subject);
         return askForMissingOrConfirm(state);
     }
 
     private SkillResult handleContent(String input, SkillContext context) {
-        if (isContentDraftRequest(input)) {
-            return draftContent(input, context.mutableState());
-        }
         String content = normalize(input);
         if (content.isBlank()) {
             return SkillResult.ask("邮件内容不能为空，请输入邮件内容。", ASK_CONTENT, context.mutableState());
         }
         Map<String, Object> state = context.mutableState();
+        Optional<EmailDraftIntent> intent = emailDraftIntentService.detect(input, ASK_CONTENT, state);
+        if (intent.map(EmailDraftIntent::requestsContentDraft).orElse(false)) {
+            return draftContent(intent.get().brief(), state);
+        }
         state.put(CONTENT, content);
         return askForMissingOrConfirm(state);
     }
@@ -134,11 +137,12 @@ public class EmailSkill implements Skill {
     private SkillResult handleConfirm(String input, SkillContext context) {
         String confirm = normalize(input);
         Map<String, Object> state = context.mutableState();
-        if (isSubjectDraftRequest(input)) {
-            return draftSubject(input, state);
+        Optional<EmailDraftIntent> intent = emailDraftIntentService.detect(input, CONFIRM, state);
+        if (intent.map(EmailDraftIntent::requestsSubjectDraft).orElse(false)) {
+            return draftSubjectAndMaybeContent(intent.get(), state);
         }
-        if (isContentDraftRequest(input)) {
-            return draftContent(input, state);
+        if (intent.map(EmailDraftIntent::requestsContentDraft).orElse(false)) {
+            return draftContent(intent.get().brief(), state);
         }
         if (!isConfirm(confirm)) {
             return SkillResult.ask("请回复“确认”发送邮件，或说明要修改的收件人、主题或内容。", CONFIRM, state);
@@ -168,6 +172,16 @@ public class EmailSkill implements Skill {
             }
         }
         return null;
+    }
+
+    private SkillResult draftSubjectAndMaybeContent(EmailDraftIntent intent, Map<String, Object> state) {
+        SkillResult result = draftSubject(intent.brief(), state);
+        if (intent.requestsContentDraft()
+                && !ASK_SUBJECT.equals(result.getNextStep())
+                && isBlank(state.get(CONTENT))) {
+            return draftContent(intent.brief(), state);
+        }
+        return result;
     }
 
     private SkillResult draftSubject(String input, Map<String, Object> state) {
@@ -294,18 +308,6 @@ public class EmailSkill implements Skill {
         }
         return (normalized.contains("帮") || normalized.contains("你来") || normalized.contains("编") || normalized.contains("随便"))
                 && (normalized.contains("邮箱") || normalized.contains("邮件地址") || normalized.contains("收件人"));
-    }
-
-    private boolean isSubjectDraftRequest(String input) {
-        String normalized = normalize(input);
-        return (normalized.contains("帮") || normalized.contains("设计") || normalized.contains("生成") || normalized.contains("拟") || normalized.contains("写"))
-                && (normalized.contains("主题") || normalized.contains("标题"));
-    }
-
-    private boolean isContentDraftRequest(String input) {
-        String normalized = normalize(input);
-        return (normalized.contains("帮") || normalized.contains("生成") || normalized.contains("拟") || normalized.contains("写"))
-                && (normalized.contains("内容") || normalized.contains("正文"));
     }
 
     private boolean isConfirm(String input) {
