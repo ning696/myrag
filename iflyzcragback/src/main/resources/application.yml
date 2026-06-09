@@ -112,6 +112,7 @@ rag:
     rerank-top-k: 3          # 精排后实际送 LLM 的 chunk 数
     min-score: 0.6
     rrf-k: 60                # RRF 融合参数 k（经验值，向量+BM25 融合时的位次衰减常数）
+    context-window-size: 1   # 每个精排命中 chunk 前后补齐的相邻 chunk 数；0 表示禁用
   chunk:
     size: 800
     overlap: 80
@@ -127,12 +128,13 @@ rag:
     enabled: true            # 启用查询改写（短 query 自动跳过）
     min-query-length: 8
   rerank:
-    enabled: false           # P0 关闭，P1 打开
-    provider: jina           # jina / noop
-    api-key: ${JINA_API_KEY:}
-    model-name: jina-reranker-v2-base-multilingual
-    endpoint: https://api.jina.ai/v1/rerank
-    timeout: 5000
+    enabled: true           # P0 关闭，P1 打开
+    provider: dashscope      # dashscope / noop
+    api-key: ${DASHSCOPE_API_KEY:}
+    model-name: qwen3-rerank
+    endpoint: https://dashscope.aliyuncs.com/compatible-api/v1/reranks
+    instruct: Given a web search query, retrieve relevant passages that answer the query.
+    timeout: 15000
   embedding:
     version: dashscope-v2-1536   # 索引时记录的 embedding 版本（切模型用）
   tools:

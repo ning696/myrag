@@ -47,6 +47,8 @@ public class RagProperties {
         private double minScore = 0.6;
         /** RRF 融合排名常数，越大越弱化排名差异。 */
         private int rrfK = 60;
+        /** 命中 chunk 前后扩展的相邻 chunk 数量；0 表示不扩展。 */
+        private int contextWindowSize = 1;
     }
 
     @Data
@@ -105,6 +107,8 @@ public class RagProperties {
         private String modelName;
         /** rerank 服务地址。 */
         private String endpoint;
+        /** rerank 任务说明，用于指导重排序模型；为空时不发送。 */
+        private String instruct = "Given a web search query, retrieve relevant passages that answer the query.";
         /** rerank 请求超时时间，单位毫秒。 */
         private int timeout = 5000;
     }

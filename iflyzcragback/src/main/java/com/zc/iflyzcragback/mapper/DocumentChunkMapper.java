@@ -38,4 +38,25 @@ public interface DocumentChunkMapper extends BaseMapper<DocumentChunkEntity> {
     List<BM25Hit> bm25Search(@Param("q") String q,
                              @Param("userId") Long userId,
                              @Param("limit") int limit);
+
+    /**
+     * 查询某个命中 chunk 前后的上下文窗口。仅返回当前用户自己的未删除 chunk。
+     */
+    @Select("""
+            SELECT c.id, c.document_id AS documentId, c.user_id AS userId,
+                   c.chunk_index AS chunkIndex, c.content, c.title, c.keywords,
+                   c.summary, c.vector_id AS vectorId, c.created_at AS createdAt, c.deleted,
+                   d.filename AS documentName,
+                   0.0 AS bm25Score
+            FROM document_chunks c
+            LEFT JOIN documents d ON d.id = c.document_id
+            WHERE c.user_id = #{userId} AND c.deleted = 0
+              AND c.document_id = #{documentId}
+              AND c.chunk_index BETWEEN #{startIndex} AND #{endIndex}
+            ORDER BY c.chunk_index ASC
+            """)
+    List<BM25Hit> selectWindowChunks(@Param("userId") Long userId,
+                                     @Param("documentId") Long documentId,
+                                     @Param("startIndex") int startIndex,
+                                     @Param("endIndex") int endIndex);
 }

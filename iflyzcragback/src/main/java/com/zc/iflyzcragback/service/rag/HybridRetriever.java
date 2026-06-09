@@ -30,6 +30,8 @@ public class HybridRetriever {
 
     private final VectorRetriever vectorRetriever;
     private final DocumentChunkMapper chunkMapper;
+    private final RerankerService rerankerService;
+    private final ContextWindowExpander contextWindowExpander;
     private final RagProperties props;
 
     /**
@@ -47,6 +49,7 @@ public class HybridRetriever {
      * 再通过 RRF（Reciprocal Rank Fusion，倒数排名融合）把多个排名列表合成一个总排名。</p>
      */
     public Result retrieve(List<String> queries, Long userId, int topK) {
+        List<String> safeQueries = queries == null ? List.of() : queries;
         int rrfK = props.getRetrieval().getRrfK();
         // key 是 documentId:chunkIndex，value 是该 chunk 的融合分数。
         Map<String, Double> rrf = new HashMap<>();
@@ -54,7 +57,7 @@ public class HybridRetriever {
         Map<String, TextSegment> pool = new LinkedHashMap<>();
         double topVectorScore = 0.0;
 
-        for (String q : queries) {
+        for (String q : safeQueries) {
             // 1. 语义检索：适合“意思相近但措辞不同”的问题。
             List<EmbeddingMatch<TextSegment>> vec = vectorRetriever.search(q, userId, topK);
             if (!vec.isEmpty()) {
@@ -67,16 +70,22 @@ public class HybridRetriever {
             accumulateBm25(bm, userId, rrf, pool, rrfK);
         }
 
-        // 3. 按融合分数倒序排列，只保留 topK 个片段进入后续 Prompt。
+        // 3. 按融合分数倒序排列，只保留 topK 个粗排候选。
         List<RetrievedChunk> merged = rrf.entrySet().stream()
                 .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
                 .limit(topK)
                 .map(e -> new RetrievedChunk(pool.get(e.getKey()), e.getValue(), e.getKey()))
                 .toList();
 
-        log.info("混合检索完成: userId={}, queries={}, candidates={}, returned={}, topVectorScore={}",
-                userId, queries.size(), pool.size(), merged.size(), topVectorScore);
-        return new Result(merged, topVectorScore);
+        String originalQuery = safeQueries.isEmpty() ? "" : safeQueries.get(0);
+        int anchorTopK = Math.max(0, props.getRetrieval().getRerankTopK());
+        List<RetrievedChunk> anchors = rerankerService.rerank(originalQuery, merged, anchorTopK);
+        List<RetrievedChunk> expanded = contextWindowExpander.expand(
+                anchors, userId, props.getRetrieval().getContextWindowSize());
+
+        log.info("混合检索完成: userId={}, queries={}, candidates={}, anchors={}, returned={}, topVectorScore={}",
+                userId, safeQueries.size(), pool.size(), anchors.size(), expanded.size(), topVectorScore);
+        return new Result(expanded, topVectorScore);
     }
 
     private void accumulateVector(List<EmbeddingMatch<TextSegment>> matches,
