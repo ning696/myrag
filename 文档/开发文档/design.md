@@ -168,6 +168,7 @@ iflyzcragback/src/main/java/com/zc/iflyzcragback/
 │   ├── ManagedTool.java            # 工具元数据与可用性接口
 │   ├── CurrentTimeTool.java        # current_time
 │   ├── WebSearchTool.java          # web_search
+│   ├── CalculatorPlugin.java       # calculator
 │   ├── RealtimeAssistant.java      # LangChain4j AI Service
 │   ├── RealtimeToolCallingService.java # 工具调用编排
 │   └── ToolService.java            # tools_config 启停管理
@@ -464,7 +465,7 @@ CREATE TABLE tools_config (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工具配置表';
 ```
 
-默认工具为 `current_time` 和 `web_search`，另有保留配置行 `__global__` 保存全局工具调用参数覆盖值。前端只展示后端声明的参数 schema，不提供任意 JSON、Hook 或优先级编辑。
+默认工具为 `current_time`、`web_search` 和 `calculator`，另有保留配置行 `__global__` 保存全局工具调用参数覆盖值。前端只展示后端声明的参数 schema，不提供任意 JSON、Hook 或优先级编辑。
 
 #### 3.2.6 skill_states 表（Skill 状态）
 
@@ -1063,7 +1064,7 @@ if (route == QueryRoute.TOOL_CALLING) {
 
 **关键点：**
 - `RealtimeToolCallingService` 按 `tools_config.enabled` 动态传入可用工具对象。
-- `RealtimeAssistant` 的系统提示约束模型：实时问题先取时间，公开实时信息再搜索，禁止编造实时数值。
+- `RealtimeAssistant` 的系统提示约束模型：实时问题先取时间，公开实时信息再搜索，计算类问题调用 `calculator`，禁止编造实时数值和计算结果。
 - `web_search` 的结果会转换为 `sourceType=web` 的 `CitationVO`，随 SSE `citations` 事件返回。
 - LLM 切换：把 `ChatLanguageModel` Bean 由 `OpenAiChatModel`（DeepSeek 走兼容协议）换成其他 LangChain4j Provider 即可。
 
@@ -1212,8 +1213,9 @@ public class RagConfig {
 - 工具启停存储在 `tools_config.enabled`。
 - `application.yml` 提供非敏感参数默认值，管理员覆盖值存储在 `tools_config.params_json`。
 - API Key、token、secret、password 等敏感参数只允许走环境变量，不进入数据库、配置文件、接口响应或前端表单。
-- 当前内置工具只有 `current_time` 和 `web_search`。
+- 当前内置工具为 `current_time`、`web_search` 和 `calculator` / `CalculatorPlugin`。
 - 涉及“今天/当前/最新/实时”的公开信息查询时，系统提示要求先调用 `current_time`，再按需调用 `web_search`。
+- 涉及纯数学表达式、金额、比例、百分比等确定性计算时，系统提示要求调用 `calculator`。
 - 工具失败或禁用时不得编造实时数值。
 
 ### 6.2 后端结构
@@ -1223,6 +1225,7 @@ service/rag/tool/
 ├── ManagedTool.java              # 工具元数据与可用性接口
 ├── CurrentTimeTool.java          # @Tool current_time
 ├── WebSearchTool.java            # @Tool web_search
+├── CalculatorPlugin.java         # @Tool calculator
 ├── WebSearchSource.java          # 搜索来源结构
 ├── RealtimeAssistant.java        # LangChain4j AI Service 接口
 ├── RealtimeToolCallingService.java # 构建 AI Service、汇总答案/引用/usedTools
@@ -1249,7 +1252,7 @@ service/rag/tool/
   → QueryRouter 识别 TOOL_CALLING
   → ToolService 按 tools_config.enabled 选择可用工具 Bean
   → RealtimeToolCallingService 构建 RealtimeAssistant
-  → 模型自动调用 current_time / web_search
+  → 模型自动调用 current_time / web_search / calculator
   → 后端从 toolExecutions 提取 usedTools 与网页引用
   → SSE 返回 token、citations、done
   → chat_messages.tool_used 持久化本次工具名称
@@ -1264,6 +1267,10 @@ service/rag/tool/
 #### web_search
 
 调用 Tavily 查询公开网页信息。API Key 只读取环境变量，搜索条数、深度、分数阈值、超时等读取 `rag.tools.web-search` 与 `search.*` 配置。搜索结果会转换为 `sourceType=web` 的引用返回前端。
+
+#### calculator / CalculatorPlugin
+
+计算数学表达式，支持数字、小数、括号、`+ - * / %` 和一元正负号。工具只返回结构化计算结果，不产生知识库或网页引用。
 
 ---
 

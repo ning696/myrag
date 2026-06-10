@@ -303,3 +303,10 @@ SELECT 'web_search',
        '搜索公开网页，用于实时价格、行情、新闻、汇率、天气、政策等公开信息',
        1
 WHERE NOT EXISTS (SELECT 1 FROM `tools_config` WHERE `tool_name` = 'web_search');
+
+INSERT INTO `tools_config` (`tool_name`, `display_name`, `description`, `enabled`)
+SELECT 'calculator',
+       'CalculatorPlugin',
+       '计算数学表达式',
+       1
+WHERE NOT EXISTS (SELECT 1 FROM `tools_config` WHERE `tool_name` = 'calculator');

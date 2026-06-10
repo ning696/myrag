@@ -37,7 +37,7 @@
 **第一版（MVP）包含：**
 - 用户注册/登录系统（JWT 认证）
 - RAG 核心功能（文档上传、向量化、智能问答）
-- 工具调用机制（内置 `current_time`、`web_search`）
+- 工具调用机制（内置 `current_time`、`web_search`、`calculator`）
 - Skill 系统（至少 2 个示例 Skill）
 - 基础 Web 界面（登录注册、文档管理、对话界面）
 
@@ -243,7 +243,7 @@
 #### 2.3.1 工具调用系统框架
 
 **功能描述：**
-工具是通过 LangChain4j `@Tool` 暴露给模型的后端能力。模型在 `TOOL_CALLING` 路由下自主决定是否调用 `current_time`、`web_search` 等工具，后端按 `tools_config.enabled` 动态提供可用工具，并按 `application.yml` 默认值与 `tools_config.params_json` 覆盖值读取非敏感运行参数。
+工具是通过 LangChain4j `@Tool` 暴露给模型的后端能力。模型在 `TOOL_CALLING` 路由下自主决定是否调用 `current_time`、`web_search`、`calculator` 等工具，后端按 `tools_config.enabled` 动态提供可用工具，并按 `application.yml` 默认值与 `tools_config.params_json` 覆盖值读取非敏感运行参数。
 
 **工具调用生命周期：**
 ```
@@ -289,6 +289,16 @@
 - ✅ 搜索结果包含来源链接
 - ✅ 未配置 API Key 时返回可解释失败，不编造实时数值
 - ✅ 搜索结果可转换为 `sourceType=web` 的引用
+
+##### calculator / CalculatorPlugin（计算表达式工具）
+
+**功能描述：**
+计算数学表达式，支持数字、小数、括号、`+ - * / %` 和一元正负号。
+
+**验收标准：**
+- ✅ 明确计算类问题可通过 `TOOL_CALLING` 调用
+- ✅ 禁止脚本执行和非法字符
+- ✅ 工具失败时返回结构化错误并记录日志
 
 ---
 
@@ -517,7 +527,7 @@ INIT → ASK_CITY → ASK_DATE → QUERY_API → DONE
 
 - ✅ 用户注册/登录系统（JWT 认证）
 - ✅ 文档知识库检索（PDF/TXT/Markdown）
-- ✅ 工具调用机制（内置 `current_time`、`web_search`）
+- ✅ 工具调用机制（内置 `current_time`、`web_search`、`calculator`）
 - ✅ Skill 系统（至少 2 个示例 Skill）
 - ✅ 基础对话界面（Web）
 - ✅ 文档管理界面（Web）
@@ -556,7 +566,7 @@ INIT → ASK_CITY → ASK_DATE → QUERY_API → DONE
 
 ### 5.3 工具调用机制
 
-- ✅ 实现 `current_time` 和 `web_search` 两个内置工具
+- ✅ 实现 `current_time`、`web_search` 和 `calculator` 内置工具
 - ✅ 支持数据库动态启用/禁用工具
 - ✅ 工具执行不影响主流程性能（超时保护 5 秒）
 - ✅ 工具执行失败时记录日志，不影响主流程
