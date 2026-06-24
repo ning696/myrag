@@ -12,12 +12,24 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 基于聊天模型的邮件草稿生成服务。
+ *
+ * <p>该服务只负责“生成可编辑草稿”，不负责发送邮件。真实发送动作仍由
+ * {@link EmailDeliveryService} 在用户确认后执行。</p>
+ *
+ * <p>Prompt 中明确要求模型不要编造邮箱、时间、地点或事实；如果模型不可用或输入上下文
+ * 不足，则返回空结果，让 {@link EmailSkill} 继续向用户追问。</p>
+ */
 public class LlmEmailDraftService implements EmailDraftService {
     private static final int MAX_SUBJECT_LENGTH = 30;
 
     private final ObjectProvider<ChatLanguageModel> chatModelProvider;
 
     @Override
+    /**
+     * 根据用户要点和已收集状态生成邮件主题。
+     */
     public Optional<String> draftSubject(String brief, Map<String, Object> state) {
         ChatLanguageModel model = chatModelProvider.getIfAvailable();
         String context = buildContext(brief, state);
@@ -40,6 +52,9 @@ public class LlmEmailDraftService implements EmailDraftService {
     }
 
     @Override
+    /**
+     * 根据用户要点和已收集状态生成邮件正文。
+     */
     public Optional<String> draftContent(String brief, Map<String, Object> state) {
         ChatLanguageModel model = chatModelProvider.getIfAvailable();
         String context = buildContext(brief, state);
@@ -61,6 +76,11 @@ public class LlmEmailDraftService implements EmailDraftService {
         }
     }
 
+    /**
+     * 拼装给模型的最小上下文。
+     *
+     * <p>这里不补充项目外事实，只把用户已经提供的信息和技能状态传给模型。</p>
+     */
     private String buildContext(String brief, Map<String, Object> state) {
         StringBuilder context = new StringBuilder();
         append(context, "用户要点", brief);
@@ -77,6 +97,9 @@ public class LlmEmailDraftService implements EmailDraftService {
         }
     }
 
+    /**
+     * 清洗模型输出，去掉 Markdown 代码块、成对引号，并限制主题长度。
+     */
     private Optional<String> sanitize(String output, boolean subject) {
         if (output == null) {
             return Optional.empty();

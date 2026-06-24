@@ -14,4 +14,9 @@ public class MailProperties {
     private String password;
     private String from;
     private boolean sslEnable = true;
+    private String sslProtocols = "TLSv1.2";
+    private boolean debug = false;
+    private int connectionTimeout = 10000;
+    private int timeout = 10000;
+    private int writeTimeout = 10000;
 }

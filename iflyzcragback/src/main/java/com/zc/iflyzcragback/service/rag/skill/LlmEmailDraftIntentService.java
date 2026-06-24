@@ -14,6 +14,12 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+/**
+ * 邮件代写意图识别服务。
+ *
+ * <p>它不生成邮件正文，只判断用户当前这句话是在直接填写字段，还是希望 AI 帮忙生成主题、
+ * 正文或二者。识别结果低于置信度阈值时返回空，避免误覆盖用户已经输入的内容。</p>
+ */
 public class LlmEmailDraftIntentService implements EmailDraftIntentService {
     private static final double MIN_CONFIDENCE = 0.65;
 
@@ -21,6 +27,9 @@ public class LlmEmailDraftIntentService implements EmailDraftIntentService {
     private final ObjectMapper objectMapper;
 
     @Override
+    /**
+     * 根据当前步骤、已知邮件状态和用户输入判断代写目标。
+     */
     public Optional<EmailDraftIntent> detect(String input, String currentStep, Map<String, Object> state) {
         ChatLanguageModel model = chatModelProvider.getIfAvailable();
         String normalized = input == null ? "" : input.trim();
@@ -56,9 +65,11 @@ public class LlmEmailDraftIntentService implements EmailDraftIntentService {
                     stringValue(state.get("subject")),
                     stringValue(state.get("content")),
                     normalized));
+            // 模型被要求只输出 JSON；这里仍兼容它偶尔包一层 Markdown 代码块的情况。
             JsonNode root = objectMapper.readTree(stripMarkdownFence(output));
             EmailDraftTarget target = parseTarget(root.path("target").asText("NONE"));
             double confidence = root.path("confidence").asDouble(0.0);
+            // 低置信度或 NONE 都按“用户直接输入”处理，减少误改主题/正文的概率。
             if (target == EmailDraftTarget.NONE || confidence < MIN_CONFIDENCE) {
                 return Optional.empty();
             }
@@ -74,6 +85,9 @@ public class LlmEmailDraftIntentService implements EmailDraftIntentService {
         }
     }
 
+    /**
+     * 将模型返回的字符串安全转换为枚举；非法值一律降级为 NONE。
+     */
     private EmailDraftTarget parseTarget(String value) {
         try {
             return EmailDraftTarget.valueOf(value == null ? "NONE" : value.trim().toUpperCase());
@@ -82,6 +96,9 @@ public class LlmEmailDraftIntentService implements EmailDraftIntentService {
         }
     }
 
+    /**
+     * 去掉模型可能附带的 Markdown fence，便于 JSON 解析。
+     */
     private String stripMarkdownFence(String output) {
         if (output == null) {
             return "{}";
