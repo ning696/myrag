@@ -198,6 +198,7 @@ public class DocumentService {
             log.info("文档入库完成: documentId={}, chunks={}", documentId, total);
         } catch (Exception e) {
             log.error("文档入库失败: documentId={}", documentId, e);
+            cleanupDocumentChunks(documentId, userId);
             DocumentEntity doc = documentMapper.selectById(documentId);
             if (doc != null) {
                 doc.setStatus("failed");
@@ -214,22 +215,57 @@ public class DocumentService {
     private void embedAndStore(List<TextSegment> segments, List<DocumentChunkEntity> entities, int processed) {
         if (segments.isEmpty()) return;
 
-        // 批量向量化
         List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
+        List<DocumentChunkEntity> inserted = new ArrayList<>();
 
-        // 批量写 MySQL
-        for (DocumentChunkEntity e : entities) {
-            chunkMapper.insert(e);
+        try {
+            for (DocumentChunkEntity e : entities) {
+                chunkMapper.insert(e);
+                inserted.add(e);
+            }
+
+            embeddingStore.addAll(embeddings, segments);
+
+            for (int i = 0; i < entities.size(); i++) {
+                DocumentChunkEntity e = entities.get(i);
+                e.setVectorId(e.getDocumentId() + "-" + e.getChunkIndex());
+                chunkMapper.updateById(e);
+            }
+        } catch (RuntimeException e) {
+            cleanupInsertedChunks(inserted, e);
+            throw e;
         }
+    }
 
-        // 批量写 Milvus（带 metadata）
-        embeddingStore.addAll(embeddings, segments);
+    private void cleanupInsertedChunks(List<DocumentChunkEntity> inserted, RuntimeException cause) {
+        for (DocumentChunkEntity chunk : inserted) {
+            try {
+                if (chunk.getId() != null) {
+                    chunkMapper.deleteById(chunk.getId());
+                } else {
+                    chunkMapper.delete(new LambdaQueryWrapper<DocumentChunkEntity>()
+                            .eq(DocumentChunkEntity::getDocumentId, chunk.getDocumentId())
+                            .eq(DocumentChunkEntity::getUserId, chunk.getUserId())
+                            .eq(DocumentChunkEntity::getChunkIndex, chunk.getChunkIndex()));
+                }
+            } catch (RuntimeException cleanupError) {
+                cause.addSuppressed(cleanupError);
+                log.warn("Failed to clean inserted ingest chunk: documentId={}, chunkIndex={}",
+                        chunk.getDocumentId(), chunk.getChunkIndex(), cleanupError);
+            }
+        }
+    }
 
-        // 回写 vector_id 到 MySQL（可选，用于跨库定位）
-        for (int i = 0; i < entities.size(); i++) {
-            DocumentChunkEntity e = entities.get(i);
-            e.setVectorId(e.getDocumentId() + "-" + e.getChunkIndex());
-            chunkMapper.updateById(e);
+    private void cleanupDocumentChunks(Long documentId, Long userId) {
+        if (documentId == null || userId == null) {
+            return;
+        }
+        try {
+            chunkMapper.delete(new LambdaQueryWrapper<DocumentChunkEntity>()
+                    .eq(DocumentChunkEntity::getDocumentId, documentId)
+                    .eq(DocumentChunkEntity::getUserId, userId));
+        } catch (RuntimeException cleanupError) {
+            log.warn("Failed to clean document chunks: documentId={}, userId={}", documentId, userId, cleanupError);
         }
     }
 
