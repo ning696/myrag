@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Back, Check, Document, Refresh, Setting } from '@element-plus/icons-vue'
@@ -15,6 +15,7 @@ const params = ref(docStore.previewParams)
 const rechunking = ref(false)
 const ingesting = ref(false)
 const progress = ref(0)
+let progressTimer: ReturnType<typeof setInterval> | null = null
 
 const totalChars = computed(() => chunks.value.reduce((sum, chunk) => sum + (chunk.content?.length || 0), 0))
 const averageChars = computed(() => (chunks.value.length ? Math.round(totalChars.value / chunks.value.length) : 0))
@@ -43,28 +44,39 @@ const handleConfirmIngest = async () => {
   }
 }
 
-const pollProgress = async () => {
-  const timer = setInterval(async () => {
+const stopPolling = () => {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+}
+
+const pollProgress = () => {
+  stopPolling()
+  progressTimer = setInterval(async () => {
     try {
       const res = await docApi.getIngestProgress(documentId.value)
       if (res.data.status === 'completed') {
-        clearInterval(timer)
+        stopPolling()
         ElMessage.success('入库完成')
         router.push('/documents')
       } else if (res.data.status === 'failed') {
-        clearInterval(timer)
+        stopPolling()
         ElMessage.error('入库失败')
         ingesting.value = false
       } else {
         progress.value = res.data.total ? Math.round((res.data.processed / res.data.total) * 100) : 0
       }
     } catch (error) {
-      clearInterval(timer)
+      stopPolling()
       ingesting.value = false
     }
   }, 2000)
 }
 
+onUnmounted(() => {
+  stopPolling()
+})
 onMounted(() => {
   if (!chunks.value.length) {
     ElMessage.error('预览数据已过期，请重新上传文档')

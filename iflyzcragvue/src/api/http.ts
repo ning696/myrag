@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios'
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import type { AxiosInstance, AxiosResponse } from 'axios'
 import { clearAuthStorage, getStoredToken } from '@/utils/authStorage'
 
 const defaultApiBaseUrl = import.meta.env.DEV ? 'http://localhost:8080' : ''

@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 
 @Slf4j
 @Configuration
@@ -20,6 +22,7 @@ import org.springframework.context.annotation.Configuration;
 public class MilvusConfig {
 
     private final MilvusProperties props;
+    private final Environment environment;
 
     @Bean
     /**
@@ -27,6 +30,7 @@ public class MilvusConfig {
      */
     public EmbeddingStore<TextSegment> embeddingStore() {
         log.info("Initializing Milvus collection: {} (dim={})", props.getCollectionName(), props.getDimension());
+        validateCredentials();
         MilvusEmbeddingStore.Builder builder = MilvusEmbeddingStore.builder()
                 .host(props.getHost())
                 .port(props.getPort())
@@ -42,5 +46,17 @@ public class MilvusConfig {
             builder.password(props.getPassword());
         }
         return builder.build();
+    }
+    private void validateCredentials() {
+        boolean hasUsername = props.getUsername() != null && !props.getUsername().isBlank();
+        boolean hasPassword = props.getPassword() != null && !props.getPassword().isBlank();
+        boolean prodProfile = environment.acceptsProfiles(Profiles.of("prod"));
+
+        if (hasUsername != hasPassword) {
+            throw new IllegalStateException("Milvus username and password must be configured together");
+        }
+        if (prodProfile && (!hasUsername || !hasPassword)) {
+            throw new IllegalStateException("MILVUS_USERNAME and MILVUS_PASSWORD must be configured in prod profile");
+        }
     }
 }

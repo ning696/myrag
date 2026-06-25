@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 
 @Configuration
 @EnableAsync
@@ -28,6 +29,23 @@ public class AsyncConfig {
         exec.setQueueCapacity(50);
         exec.setThreadNamePrefix("ingest-");
         exec.setKeepAliveSeconds(60);
+        exec.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        exec.initialize();
+        return exec;
+    }
+
+    @Bean(name = "ragChatExecutor")
+    /**
+     * RAG 流式对话线程池。
+     */
+    public Executor ragChatExecutor() {
+        ThreadPoolTaskExecutor exec = new ThreadPoolTaskExecutor();
+        exec.setCorePoolSize(4);
+        exec.setMaxPoolSize(8);
+        exec.setQueueCapacity(100);
+        exec.setThreadNamePrefix("rag-chat-");
+        exec.setKeepAliveSeconds(60);
+        exec.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         exec.initialize();
         return exec;
     }

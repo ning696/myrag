@@ -16,6 +16,7 @@ import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -52,6 +54,9 @@ public class RagOrchestrator {
     private final RagProperties props;
     private final ObjectMapper objectMapper;
 
+    @Resource(name = "ragChatExecutor")
+    private Executor ragChatExecutor;
+
     /**
      * 开启一次流式对话。
      *
@@ -61,8 +66,9 @@ public class RagOrchestrator {
         SseEmitter emitter = new SseEmitter(60_000L);
         long startTime = System.currentTimeMillis();
 
-        new Thread(() -> {
-            try {
+        try {
+            ragChatExecutor.execute(() -> {
+                try {
                 // 1. 最近历史只用于路由、改写和上下文补全，不会无限制塞给模型。
                 List<ChatMessageEntity> history = loadHistory(sessionId);
                 // 2. Skill 是有状态任务流程。已有流程优先继续；新触发流程会直接返回下一步提示。
@@ -134,20 +140,28 @@ public class RagOrchestrator {
                 List<ChatMessage> messages = promptBuilder.buildMessages(query, chunks, history);
                 streamAndSave(emitter, sessionId, query, messages, AnswerMode.RAG_ANSWER,
                         confidence, decision.reason(), buildCitations(chunks), null, startTime);
-            } catch (Exception e) {
-                log.error("RAG 对话失败", e);
-                try {
-                    emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
-                    emitter.complete();
-                } catch (IOException ex) {
-                    log.error("SSE 异常推送失败", ex);
+                } catch (Throwable t) {
+                    log.error("RAG stream chat failed | sessionId={} | userId={}", sessionId, userId, t);
+                    completeWithError(emitter, "对话生成失败，请稍后重试");
                 }
-            }
-        }).start();
+            });
+        } catch (RuntimeException e) {
+            log.warn("RAG chat executor rejected task | sessionId={} | userId={}", sessionId, userId, e);
+            completeWithError(emitter, "当前对话请求较多，请稍后重试");
+        }
 
         return emitter;
     }
 
+    private void completeWithError(SseEmitter emitter, String message) {
+        try {
+            emitter.send(SseEmitter.event().name("error").data(message));
+            emitter.complete();
+        } catch (IOException | IllegalStateException e) {
+            log.warn("Failed to send SSE error event", e);
+            emitter.completeWithError(e);
+        }
+    }
     private boolean shouldUseToolCalling(QueryRoute route) {
         return props.getTools().isEnabled()
                 && route == QueryRoute.TOOL_CALLING;

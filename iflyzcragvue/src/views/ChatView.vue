@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, Document, Files, Plus, Promotion } from '@element-plus/icons-vue'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { useChatStore } from '@/stores/chat'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const chatStore = useChatStore()
+const userStore = useUserStore()
+let streamController: AbortController | null = null
 const query = ref('')
 const sending = ref(false)
 const messagesContainer = ref<HTMLDivElement>()
@@ -22,61 +25,89 @@ const activeSessionTitle = computed(() => {
 const canSend = computed(() => Boolean(query.value.trim()) && !sending.value)
 
 const handleSend = async () => {
-  if (!query.value.trim()) return
+  const userQuery = query.value.trim()
+  if (!userQuery) return
+
+  const token = userStore.token
+  if (!token) {
+    ElMessage.error('登录已过期，请重新登录')
+    router.push('/login')
+    return
+  }
+
   if (!chatStore.activeSessionId) {
     await chatStore.createSession()
   }
 
-  const userMsg = { id: Date.now(), role: 'user', content: query.value, createdAt: new Date().toISOString() }
+  const userMsg = { id: Date.now(), role: 'user', content: userQuery, createdAt: new Date().toISOString() }
   chatStore.addMessage(userMsg)
-  const userQuery = query.value
   query.value = ''
-  sending.value = true
 
   let aiContent = ''
   const aiMsg = { id: Date.now() + 1, role: 'assistant', content: '', createdAt: new Date().toISOString() }
   chatStore.addMessage(aiMsg)
 
-  const token = localStorage.getItem('token')
-  await fetchEventSource(`${apiBaseUrl}/api/chat/messages/stream`, {
-    openWhenHidden: true,
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({ sessionId: chatStore.activeSessionId, query: userQuery }),
-    onmessage(ev) {
-      if (ev.event === 'token') {
-        aiContent += ev.data
-        chatStore.updateMessage(aiMsg.id, { content: aiContent })
-        nextTick(() => scrollToBottom())
-      } else if (ev.event === 'citations') {
-        chatStore.updateMessage(aiMsg.id, { citations: JSON.parse(ev.data) })
-      } else if (ev.event === 'done') {
-        if (ev.data && ev.data !== '{}') {
-          const data = JSON.parse(ev.data)
-          chatStore.updateMessage(aiMsg.id, {
-            answerMode: data.answerMode,
-            confidence: data.confidence ?? undefined,
-            routeReason: data.routeReason,
-            skillUsed: data.skillUsed,
-            skillStep: data.skillStep,
-            skillCompleted: data.skillCompleted
-          })
-        }
-        sending.value = false
-      }
-    },
-    onerror(err) {
-      ElMessage.error('对话失败')
-      sending.value = false
-      throw err
-    }
-  })
-  nextTick(() => scrollToBottom())
-}
+  streamController?.abort()
+  const controller = new AbortController()
+  streamController = controller
+  sending.value = true
 
+  try {
+    await fetchEventSource(`${apiBaseUrl}/api/chat/messages/stream`, {
+      openWhenHidden: true,
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ sessionId: chatStore.activeSessionId, query: userQuery }),
+      onmessage(ev) {
+        if (ev.event === 'token') {
+          aiContent += ev.data
+          chatStore.updateMessage(aiMsg.id, { content: aiContent })
+          nextTick(() => scrollToBottom())
+        } else if (ev.event === 'citations') {
+          chatStore.updateMessage(aiMsg.id, { citations: JSON.parse(ev.data) })
+        } else if (ev.event === 'done') {
+          if (ev.data && ev.data !== '{}') {
+            const data = JSON.parse(ev.data)
+            chatStore.updateMessage(aiMsg.id, {
+              answerMode: data.answerMode,
+              confidence: data.confidence ?? undefined,
+              routeReason: data.routeReason,
+              skillUsed: data.skillUsed,
+              skillStep: data.skillStep,
+              skillCompleted: data.skillCompleted
+            })
+          }
+          sending.value = false
+        } else if (ev.event === 'error') {
+          ElMessage.error(ev.data || '对话失败')
+          sending.value = false
+          controller.abort()
+        }
+      },
+      onerror() {
+        if (!controller.signal.aborted) {
+          ElMessage.error('对话失败')
+          sending.value = false
+          controller.abort()
+        }
+      }
+    })
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      ElMessage.error('对话失败')
+    }
+  } finally {
+    if (streamController === controller) {
+      streamController = null
+    }
+    sending.value = false
+    nextTick(() => scrollToBottom())
+  }
+}
 const scrollToBottom = () => {
   if (messagesContainer.value) {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
@@ -144,6 +175,11 @@ onMounted(async () => {
     await chatStore.loadMessages(chatStore.sessions[0].sessionId)
     nextTick(() => scrollToBottom())
   }
+})
+onUnmounted(() => {
+  streamController?.abort()
+  streamController = null
+  sending.value = false
 })
 </script>
 

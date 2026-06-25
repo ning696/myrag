@@ -61,7 +61,7 @@ milvus:
   host: ${MILVUS_HOST}
   port: ${MILVUS_PORT}
   username: ${MILVUS_USERNAME:}
-  password: ${MILVUS_PASSWORD:}
+  password: ${MILVUS_PASSWORD}
   collection-name: myrag_chunks
   dimension: 1536       # DashScope text-embedding-v2 输出维度
 

@@ -1,0 +1,3 @@
+milvus:
+  username: ${MILVUS_USERNAME:}
+  password: ${MILVUS_PASSWORD:}
