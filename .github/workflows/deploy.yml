@@ -1,0 +1,85 @@
+name: Test Build Deploy
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Test backend
+        working-directory: iflyzcragback
+        run: |
+          chmod +x mvnw
+          ./mvnw -B test
+
+      - name: Build backend jar
+        working-directory: iflyzcragback
+        run: |
+          ./mvnw -B clean package -DskipTests
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: iflyzcragvue/package-lock.json
+
+      - name: Build frontend dist
+        working-directory: iflyzcragvue
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts
+          cp iflyzcragback/target/*.jar artifacts/app.jar
+          tar -C iflyzcragvue/dist -czf artifacts/dist.tar.gz .
+
+      - name: Upload artifacts and recreate backend/nginx
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -e
+          DEPLOY_PORT="${DEPLOY_PORT:-22}"
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" artifacts/app.jar "$DEPLOY_USER@$DEPLOY_HOST:/tmp/myifyrag-app.jar"
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" artifacts/dist.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/myifyrag-dist.tar.gz"
+
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" << 'EOF'
+            set -e
+            cd /www/docker/myifyrag
+
+            cp /tmp/myifyrag-app.jar backend/app.jar
+
+            rm -rf frontend/dist.new
+            mkdir -p frontend/dist.new
+            tar -xzf /tmp/myifyrag-dist.tar.gz -C frontend/dist.new
+
+            rm -rf frontend/dist
+            mv frontend/dist.new frontend/dist
+
+            bash scripts/update.sh
+          EOF
