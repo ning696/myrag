@@ -1,6 +1,20 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
+const FETCH_ME_TIMEOUT_MS = 5000
+
+const withTimeout = <T>(promise: Promise<T>, timeoutMs = FETCH_ME_TIMEOUT_MS): Promise<T> => {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error('fetchMe timeout'))
+    }, timeoutMs)
+
+    promise.then(resolve, reject).finally(() => {
+      window.clearTimeout(timer)
+    })
+  })
+}
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -55,7 +69,7 @@ router.beforeEach(async (to, _from, next) => {
   }
   if (userStore.token && !userStore.user) {
     try {
-      await userStore.fetchMe()
+      await withTimeout(userStore.fetchMe())
     } catch {
       next('/login')
       return
