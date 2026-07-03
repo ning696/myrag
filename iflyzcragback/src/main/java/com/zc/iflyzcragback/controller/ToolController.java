@@ -36,6 +36,11 @@ public class ToolController {
         return Result.success(toolService.globalParams());
     }
 
+    @GetMapping("/cicd-test")
+    public Result<String> cicdTest() {
+        return Result.success(toolService.cicdTest());
+    }
+
     @PutMapping("/global")
     public Result<ToolGlobalVO> updateGlobalParams(@Valid @RequestBody ToolParamsRequest request) {
         return Result.success(toolService.updateGlobalParams(request.getParams()));

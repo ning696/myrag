@@ -64,6 +64,10 @@ public class ToolService {
                 .toList();
     }
 
+    public String cicdTest() {
+        return "CICD测试成功！";
+    }
+
     @Transactional
     public ToolVO toggle(String toolName, boolean enabled) {
         ManagedTool tool = registeredTools().get(toolName);

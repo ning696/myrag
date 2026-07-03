@@ -11,6 +11,8 @@ const skills = ref<SkillConfig[]>([])
 const globalConfig = ref<ToolGlobalConfig | null>(null)
 const loading = ref(false)
 const globalSaving = ref(false)
+const cicdTesting = ref(false)
+const cicdResult = ref('')
 const saving = reactive<Record<string, boolean>>({})
 const skillSaving = reactive<Record<string, boolean>>({})
 const paramSaving = reactive<Record<string, boolean>>({})
@@ -77,6 +79,19 @@ const toggleSkill = async (skill: SkillConfig) => {
   }
 }
 
+const runCicdTest = async () => {
+  cicdTesting.value = true
+  try {
+    const res = await toolApi.runCicdTest()
+    cicdResult.value = res.data
+    ElMessage.success(`接口返回：${res.data}`)
+  } catch (error: any) {
+    ElMessage.error(`CI/CD 测试失败：${error.message || '未知错误'}`)
+  } finally {
+    cicdTesting.value = false
+  }
+}
+
 const buildParams = (params: ToolParamDefinition[], form: Record<string, ToolParamValue>) =>
   params.reduce<Record<string, ToolParamValue>>((acc, param) => {
     acc[param.key] = form[param.key]
@@ -132,8 +147,12 @@ onMounted(loadTools)
       <div>
         <h1 class="page-title">工具管理</h1>
         <p class="page-description">工具启停、全局调用限制和非敏感运行参数。</p>
+        <p v-if="cicdResult" class="cicd-result">接口返回：{{ cicdResult }}</p>
       </div>
-      <el-button :icon="Refresh" :loading="loading" @click="loadTools">刷新</el-button>
+      <div class="header-actions">
+        <el-button :icon="Check" :loading="cicdTesting" @click="runCicdTest">CI/CD 测试</el-button>
+        <el-button :icon="Refresh" :loading="loading" @click="loadTools">刷新</el-button>
+      </div>
     </header>
 
     <section v-if="globalConfig" class="panel global-panel">
@@ -322,6 +341,24 @@ onMounted(loadTools)
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.header-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+.cicd-result {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .tool-grid {

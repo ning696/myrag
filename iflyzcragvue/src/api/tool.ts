@@ -4,6 +4,9 @@ import type { ToolConfig, ToolGlobalConfig, ToolParamsRequest, ToolToggleRequest
 export const listTools = () =>
   http.get<any, { data: ToolConfig[] }>('/api/tools')
 
+export const runCicdTest = () =>
+  http.get<any, { data: string }>('/api/tools/cicd-test')
+
 export const toggleTool = (name: string, data: ToolToggleRequest) =>
   http.put<any, { data: ToolConfig }>(`/api/tools/${name}/toggle`, data)
 
