@@ -71,21 +71,22 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
-          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" artifacts/app.jar "$DEPLOY_USER@$DEPLOY_HOST:/tmp/myifyrag-app.jar"
-          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" artifacts/dist.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/myifyrag-dist.tar.gz"
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" artifacts/app.jar "$DEPLOY_USER@$DEPLOY_HOST:/tmp/myiflyrag-app.jar"
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" artifacts/dist.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/myiflyrag-dist.tar.gz"
 
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" << 'EOF'
             set -e
             cd /www/docker/myiflyrag
 
-            cp /tmp/myifyrag-app.jar backend/app.jar
+            cp /tmp/myiflyrag-app.jar backend/app.jar
 
             rm -rf frontend/dist.new
             mkdir -p frontend/dist.new
-            tar -xzf /tmp/myifyrag-dist.tar.gz -C frontend/dist.new
+            tar -xzf /tmp/myiflyrag-dist.tar.gz -C frontend/dist.new
 
             rm -rf frontend/dist
             mv frontend/dist.new frontend/dist
 
-            bash scripts/update.sh
+            bash scripts/update-app-only.sh
+            bash scripts/status-app-only.sh
           EOF
