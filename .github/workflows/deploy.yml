@@ -76,7 +76,7 @@ jobs:
 
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" << 'EOF'
             set -e
-            cd /www/docker/myifyrag
+            cd /www/docker/myiflyrag
 
             cp /tmp/myifyrag-app.jar backend/app.jar
 
