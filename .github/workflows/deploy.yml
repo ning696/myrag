@@ -56,11 +56,17 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-        run:
-          set -e
+        run: |
+          set -euo pipefail
+
+          : "${DEPLOY_HOST:?Missing GitHub secret DEPLOY_HOST}"
+          : "${DEPLOY_USER:?Missing GitHub secret DEPLOY_USER}"
+          : "${DEPLOY_SSH_KEY:?Missing GitHub secret DEPLOY_SSH_KEY}"
+
           DEPLOY_PORT="${DEPLOY_PORT:-22}"
 
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
